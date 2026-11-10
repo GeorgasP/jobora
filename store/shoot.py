@@ -105,7 +105,9 @@ def stage_for_upload():
     """
     out = ROOT / "store" / "dist" / "upload"
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("*.png"):
+    # Τα πάντα ξαναγράφονται. Ένα παλιό zip που επέζησε δίπλα σε φρέσκες εικόνες
+    # είναι αόρατο λάθος: ανεβαίνει και περνάει, με λάθος περιεχόμενο μέσα.
+    for old in list(out.glob("*.png")) + list(out.glob("*.zip")) + list(out.glob("*.txt")):
         old.unlink()
 
     staged = []
@@ -114,6 +116,12 @@ def stage_for_upload():
     staged.append((ROOT / "store" / "promo" / "440x280.png", out / "promo-small-440x280.png"))
     staged.append((ROOT / "store" / "promo" / "1400x560.png", out / "promo-marquee-1400x560.png"))
     staged.append((ROOT / "extension" / "icons" / "128.png", out / "store-icon-128.png"))
+
+    # Το πακέτο, από τη μόνη έκδοση που χτίστηκε τελευταία.
+    zips = sorted((ROOT / "store" / "dist").glob("jobora-*.zip"),
+                  key=lambda f: f.stat().st_mtime)
+    if zips:
+        staged.append((zips[-1], out / zips[-1].name))
 
     # Και η περιγραφή, από τη μοναδική της πηγή. Έμεινε κάποτε πίσω σε ένα
     # rename επειδή το dist/ είναι εξαιρεμένο από τις αναζητήσεις, και θα
