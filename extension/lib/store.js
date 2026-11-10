@@ -37,7 +37,7 @@ export const DEFAULT_PROFILE = {
   maxAgeDays: 60,
   minScore: 55,
   boards: ["remotive", "arbeitnow", "remoteok", "jobicy", "himalayas", "workingnomads",
-           "themuse", "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "psf", "skywalker", "ordino"],
+           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "psf", "skywalker", "ordino"],
   targets: [],
   autoScan: true,
   notify: true,

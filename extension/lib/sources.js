@@ -300,20 +300,6 @@ export const ATS = {
 
 /* ── Aggregators: δουλεύουν χωρίς λίστα εταιρειών ──────────── */
 export const BOARDS = {
-  /** The Muse — δεκάδες χιλιάδες θέσεις, όχι μόνο remote, σε όλο τον κόσμο. */
-  async themuse(query) {
-    const pages = await Promise.all([0, 1, 2].map((p) =>
-      getJSON(`https://www.themuse.com/api/public/jobs?page=${p}&descending=true`)
-        .catch(() => ({ results: [] }))));
-    return pages.flatMap((d) => d.results || []).map((j) => job("themuse", j.id,
-      j.company?.name, j.name, j.refs?.landing_page || "", {
-      location: (j.locations || []).map((l) => l.name).join(", "),
-      description: stripHtml(j.contents),
-      postedAt: iso(j.publication_date),
-      remote: (j.locations || []).some((l) => /flexible|remote/i.test(l.name)),
-    })).filter((j) => j.url);
-  },
-
   /** We Work Remotely — RSS, ο τίτλος έχει μορφή «Εταιρεία: Θέση». */
   async weworkremotely() {
     const xml = await getText("https://weworkremotely.com/remote-jobs.rss");

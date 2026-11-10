@@ -43,7 +43,7 @@ Applicant tracking systems: Greenhouse, Lever, Ashby, Workable, SmartRecruiters,
 Recruitee, Workday, Teamtailor, Breezy.
 
 Job boards: Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads,
-The Muse, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs.
+We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs.
 
 National sites: psf.org.gr, skywalker.gr, ordino.gr.
 

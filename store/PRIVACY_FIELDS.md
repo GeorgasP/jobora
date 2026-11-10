@@ -53,7 +53,7 @@ When the user clicks "Fill the current page" in the extension's popup, the form 
 ```
 The extension fetches public job listings and must reach the sites that publish them.
 
-Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, The Muse, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for postings anyone can see without logging in. No user data is sent.
+Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for postings anyone can see without logging in. No user data is sent.
 
 api.adzuna.com: optional, and only if the user enters their own Adzuna key.
 
