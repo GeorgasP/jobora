@@ -314,16 +314,15 @@ export async function readCV(file) {
   };
 }
 
-/* ── Τι μπορούμε να μαντέψουμε από το κείμενο ─────────────── */
+/* ── What we can guess from the text ─────────────────────── */
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]*[\w]/;
 const PHONE_RE = /(\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3}[\s.-]?\d{3,4}/;
 const LINKEDIN_RE = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[\w\-%]+/i;
 const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w\-]+/i;
 
 
-/** Μαντεύει στοιχεία επικοινωνίας + πιθανούς τίτλους από το κείμενο του CV. */
-// Το ίδιο λεξιλόγιο με τις προτάσεις: ό,τι μπορεί να προταθεί μπορεί και να
-// αναγνωριστεί μέσα στο βιογραφικό.
+// The same vocabulary as the title suggestions: anything the app can suggest,
+// it can also recognise inside a CV.
 const COMMON_TITLES = ALL_PROFESSIONS;
 
 const foldName = (s) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
@@ -497,6 +496,63 @@ function guessName(text, contact) {
   return best.value;
 }
 
+// Where a job title appears says more than how often it appears. The headline
+// under the name and the start of a line (where CVs put the role of each job)
+// describe the person's own work; a title inside a sentence ("customers of
+// brokers") usually describes someone else's.
+const TITLE_WEIGHT = { headline: 3, lineStart: 2, elsewhere: 1 };
+const HEADLINE_LINES = 5;
+const MAX_TITLE_SUGGESTIONS = 5;
+
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Whole words only, so "Trader" does not match inside "MetaTrader", nor
+// "Pilot" inside "Copilot". Longest first, so "Primary School Teacher" claims
+// its words before "Teacher" can.
+const TITLE_PATTERNS = [...COMMON_TITLES]
+  .sort((a, b) => b.length - a.length)
+  .map((title) => ({
+    title,
+    lowerCase: title.toLowerCase(),
+    pattern: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(title)}(?![\\p{L}\\p{N}])`, "giu"),
+  }));
+
+/** The job titles a CV mentions, most telling first, at most MAX_TITLE_SUGGESTIONS. */
+function suggestTitles(text) {
+  const lowerText = text.toLowerCase();
+  const lines = text.split(/\r\n?|\n/)
+    .map((line) => line.replace(/^[\s#*•·–—-]+/, "").trim())
+    .filter(Boolean);
+  // Per line, the character ranges that a longer title has already claimed.
+  const claimed = lines.map(() => []);
+  const found = new Map();  // title → { title, score, firstLine }
+
+  for (const { title, lowerCase, pattern } of TITLE_PATTERNS) {
+    if (!lowerText.includes(lowerCase)) continue;  // cheap check before the regex
+    lines.forEach((line, lineIndex) => {
+      for (const match of line.matchAll(pattern)) {
+        const start = match.index, end = start + match[0].length;
+        if (claimed[lineIndex].some(([from, to]) => start < to && from < end)) continue;
+        claimed[lineIndex].push([start, end]);
+
+        const weight = lineIndex < HEADLINE_LINES ? TITLE_WEIGHT.headline
+          : start === 0 ? TITLE_WEIGHT.lineStart
+          : TITLE_WEIGHT.elsewhere;
+        const entry = found.get(title) ?? { title, score: 0, firstLine: lineIndex };
+        entry.score += weight;
+        found.set(title, entry);
+      }
+    });
+  }
+
+  // Most points first; on a tie, the title that appears earlier in the CV.
+  return [...found.values()]
+    .sort((a, b) => b.score - a.score || a.firstLine - b.firstLine)
+    .slice(0, MAX_TITLE_SUGGESTIONS)
+    .map((entry) => entry.title);
+}
+
+/** Guesses contact details, the applicant's name and likely job titles from the CV text. */
 export function guessFromCV(text) {
   const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
   if (!text) return out;
@@ -511,13 +567,7 @@ export function guessFromCV(text) {
   // names using labels and contact details, and reject qualifications.
   out.name = guessName(text, out);
 
-  const low = text.toLowerCase();
-  const scored = COMMON_TITLES
-    .map((t) => ({ t, n: (low.match(new RegExp(t.toLowerCase(), "g")) || []).length }))
-    .filter((x) => x.n > 0)
-    .sort((a, b) => b.n - a.n);
-  out.titles = scored.slice(0, 5).map((x) => x.t);
-
+  out.titles = suggestTitles(text);
   return out;
 }
 

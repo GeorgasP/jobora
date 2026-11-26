@@ -77,6 +77,30 @@ test("job title suggestions still work independently of name extraction", () => 
   assert.ok(found.titles.includes("Registered Nurse"));
 });
 
+test("job titles match whole words only", () => {
+  const { titles } = guessFromCV(
+    "Jane Doe\nBuilt bots on MetaTrader and cTrader\nUsed Copilot every day\nHelped customers of brokers");
+  for (const title of ["Trader", "Pilot", "Broker"]) assert.ok(!titles.includes(title), title);
+});
+
+test("a title at the start of a line outranks a passing mention", () => {
+  const cv = [
+    "Jane Doe", "jane@example.test", "Athens, Greece", "Profile", "Calm under pressure",
+    "Experience",
+    "Customer Service Representative — Telecroft, 2024–2025",
+    "Explained billing to every Trader who called",
+  ].join("\n");
+  const { titles } = guessFromCV(cv);
+  assert.equal(titles[0], "Customer Service Representative");
+  assert.ok(titles.indexOf("Trader") > 0);
+});
+
+test("the most specific title claims the words it is made of", () => {
+  const { titles } = guessFromCV("Jane Doe\nExperience\nPrimary School Teacher, 2019–2024");
+  assert.ok(titles.includes("Primary School Teacher"));
+  assert.ok(!titles.includes("Teacher"));
+});
+
 // Synthetic, self-contained PDFs: no private CVs or downloaded dependencies.
 function pdfFile(streams, cmap = "", compressed = false, { composite = false, encoding = "" } = {}) {
   const streamObject = (source) => {
