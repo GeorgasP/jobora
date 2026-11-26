@@ -5,6 +5,7 @@
  * CSP καμίας σελίδας. Καμία σύνδεση με LinkedIn/Indeed: το απαγορεύουν τα ToS
  * τους και μπλοκάρουν λογαριασμούς.
  */
+import { countryFromCode, countryLabel } from "./places.js";
 
 const UA_TIMEOUT = 20000;
 
@@ -20,7 +21,7 @@ async function request(url, options = {}) {
   }
 }
 
-const getJSON = async (url) =>
+export const getJSON = async (url) =>
   (await request(url, { headers: { accept: "application/json" } })).json();
 
 const getText = async (url) => (await request(url)).text();
@@ -187,8 +188,41 @@ function job(source, externalId, company, title, url, opts = {}) {
     salaryMin: smin, salaryMax: smax,
     salaryCurrency: currency || opts.currency || null,
     salaryPeriod: period || "year",
+    // ESCO occupations (see esco.js), from sources that tag their ads with
+    // them. They say what the job is in any language.
+    occupations: opts.occupations || [],
     lastSeen: new Date().toISOString(),
   };
+}
+
+/* ── EURES ─────────────────────────────────────────────────── */
+
+const EURES_SEARCH = "https://europa.eu/eures/api/jv-searchengine/public/jv-search/search";
+const EURES_PAGE_SIZE = 50;   // the most the API accepts
+const EURES_PAGES = 2;        // per country: its 100 newest matching vacancies
+
+/** A EURES search for vacancies in the given ESCO occupations, newest first. */
+const euresCriteria = (occupationUris, countryCode, page) => ({
+  resultsPerPage: EURES_PAGE_SIZE, page, sortSearch: "MOST_RECENT",
+  occupationUris, locationCodes: countryCode ? [countryCode] : [],
+  keywords: [], publicationPeriod: null, skillUris: [], requiredExperienceCodes: [],
+  positionScheduleCodes: [], sectorCodes: [], educationAndQualificationLevelCodes: [],
+  positionOfferingCodes: [], euresFlagCodes: [], otherBenefitsCodes: [], requiredLanguages: [],
+  minNumberPost: null, sessionId: "jobora",
+});
+
+/** One EURES vacancy as a job, in English when EURES has a translation. */
+function euresJob(vacancy) {
+  const text = vacancy.translations?.en || vacancy;
+  const countries = Object.keys(vacancy.locationMap || {}).map(countryFromCode).filter(Boolean);
+  return job("eures", vacancy.id, vacancy.employer?.name, text.title || vacancy.title,
+    `https://europa.eu/eures/portal/jv-se/jv-details/${encodeURIComponent(vacancy.id)}?jvDisplayLanguage=en`, {
+      location: countries.map(countryLabel).join(", "),
+      country: countries[0] || null,
+      description: stripHtml(text.description || vacancy.description),
+      postedAt: iso(vacancy.creationDate),
+      occupations: vacancy.jobCategoriesCodes || [],
+    });
 }
 
 /* ── ATS providers: στοχευμένες εταιρείες ─────────────────── */
@@ -441,6 +475,36 @@ export const BOARDS = {
           }));
         }
         if (rows.length < 50) break;
+      }
+    }
+    return out;
+  },
+
+  /*
+   * EURES: the European Commission's job portal. The public employment
+   * services of the EU, the EEA and Switzerland publish their vacancies there,
+   * so it covers whole markets (nurses, waiters, drivers, teachers), not just
+   * software. No key: it is the same public search the portal itself uses.
+   *
+   * We search by ESCO occupation, not by words: a word search for "waiter" in
+   * Cyprus returns painters, while the occupation returns the island's waiters
+   * whatever language their ads are in. opts.eures = { occupations, countries }
+   * comes from the scan; countries [] means all of Europe in one search.
+   * Greece publishes almost nothing to EURES, so Greek jobs come from the
+   * Greek sources below.
+   */
+  async eures(query, opts = {}) {
+    const { occupations = [], countries = [] } = opts.eures || {};
+    if (!occupations.length) return [];
+    const out = [];
+    // One search per country, so a big market such as Germany does not take
+    // every result away from a smaller one.
+    for (const country of countries.length ? countries : [null]) {
+      for (let page = 1; page <= EURES_PAGES; page++) {
+        const found = await postJSON(EURES_SEARCH, euresCriteria(occupations, country, page));
+        const vacancies = found.jvs || [];
+        out.push(...vacancies.map(euresJob));
+        if (vacancies.length < EURES_PAGE_SIZE) break;
       }
     }
     return out;

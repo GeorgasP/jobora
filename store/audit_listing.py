@@ -66,7 +66,7 @@ NAMES = {
     "jobicy": "Jobicy", "himalayas": "Himalayas", "workingnomads": "WorkingNomads",
     "themuse": "The Muse", "weworkremotely": "We Work Remotely",
     "cryptojobs": "Cryptocurrency Jobs", "landingjobs": "Landing.jobs",
-    "devitjobs": "DevITjobs", "adzuna": "Adzuna", "psf": "psf.org.gr",
+    "devitjobs": "DevITjobs", "adzuna": "Adzuna", "eures": "EURES", "psf": "psf.org.gr",
     "skywalker": "skywalker.gr", "ordino": "ordino.gr",
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
     "workable": "Workable", "smartrecruiters": "SmartRecruiters",

@@ -37,7 +37,10 @@ export const DEFAULT_PROFILE = {
   maxAgeDays: 60,
   minScore: 55,
   boards: ["remotive", "arbeitnow", "remoteok", "jobicy", "himalayas", "workingnomads",
-           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "psf", "skywalker", "ordino"],
+           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "eures", "psf", "skywalker", "ordino"],
+  // The ESCO occupations of each job title, looked up once per title by the
+  // scan (see esco.js): { "Waiter": ["http://data.europa.eu/esco/occupation/…"] }.
+  titleOccupations: {},
   targets: [],
   autoScan: true,
   notify: true,
@@ -102,6 +105,7 @@ export async function mergeJobs(incoming) {
         country: job.country ?? stored.country ?? null,
         salaryMin: job.salaryMin, salaryMax: job.salaryMax,
         salaryCurrency: job.salaryCurrency, salaryPeriod: job.salaryPeriod,
+        occupations: job.occupations || stored.occupations || [],
         lastSeen: job.lastSeen,
       });
       if (job.description) {

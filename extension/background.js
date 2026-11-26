@@ -6,7 +6,9 @@
  * • API μηνυμάτων για το UI και για το content script (autofill)
  */
 import * as store from "./lib/store.js";
-import { fetchAll } from "./lib/sources.js";
+import { fetchAll, getJSON } from "./lib/sources.js";
+import { lookUpOccupations } from "./lib/esco.js";
+import { euresSearchFor } from "./lib/scanplan.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
 import { pickCompanies } from "./lib/companies.js";
@@ -32,6 +34,7 @@ const MIGRATIONS = [
   { version: 4, boards: ["psf"] },
   { version: 5, boards: ["skywalker"] },
   { version: 6, boards: ["ordino"] },
+  { version: 7, boards: ["eures"] },
 ];
 const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
@@ -107,6 +110,30 @@ async function currentMatches(tally = null) {
 }
 
 /* ── Scan ─────────────────────────────────────────────────── */
+
+/**
+ * Adds the ESCO occupations of the user's job titles to the profile (see
+ * esco.js). Each title is looked up once and the answer kept, even when it is
+ * "no occupation"; a lookup that fails is not kept, so the next scan retries.
+ */
+async function withTitleOccupations(profile) {
+  const known = profile.titleOccupations || {};
+  const titleOccupations = {};
+  for (const title of profile.titles || []) {
+    if (known[title]) {
+      titleOccupations[title] = known[title];
+      continue;
+    }
+    try {
+      titleOccupations[title] = await lookUpOccupations(title, getJSON);
+    } catch (e) {
+      console.warn(`Jobora: ESCO lookup failed for "${title}" —`, e);
+    }
+  }
+  await store.saveProfile({ titleOccupations });
+  return { ...profile, titleOccupations };
+}
+
 async function runScan({ silent = false } = {}) {
   if (scanning) return { ok: false, error: t("error.scanRunning") };
   scanning = true;
@@ -114,7 +141,7 @@ async function runScan({ silent = false } = {}) {
 
   try {
     await migrated;
-    const profile = await store.getProfile();
+    const profile = await withTitleOccupations(await store.getProfile());
     const targets = profile.targets?.length ? profile.targets : pickCompanies(profile.industries);
     const sources = [];
 
@@ -127,6 +154,7 @@ async function runScan({ silent = false } = {}) {
         appKey: profile.adzunaKey,
         countries: profile.adzunaCountries,
       },
+      eures: euresSearchFor(profile),
     });
 
     const { added, total } = await store.mergeJobs(jobs);

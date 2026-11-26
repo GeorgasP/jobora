@@ -48,19 +48,19 @@ Injects the form-filling script into a job application page when the user clicks
 When the user clicks "Fill the current page" in the extension's popup, the form filler needs access to the tab the user is looking at, at that moment, on that click. activeTab grants exactly that and nothing wider: no access to other tabs, no access before the click, and no access after the tab is closed.
 ```
 
-## Host permission justification  (983/1000)
+## Host permission justification  (974/1000)
 
 ```
 The extension fetches public job listings and must reach the sites that publish them.
 
-Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for postings anyone can see without logging in. No user data is sent.
+Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for public postings. No user data is sent.
 
-api.adzuna.com: optional, and only if the user enters their own Adzuna key.
+europa.eu, ec.europa.eu: EURES, the EU job portal, searched by the occupation codes (from ESCO) of the user's job titles and the countries they chose. No CV or contact details are sent.
 
-open.er-api.com: published exchange rates once a day, with no parameters, so a salary filter set in one currency can be compared against a job advertised in another.
+api.adzuna.com, api.anthropic.com: optional, only with the user's own key (Anthropic drafts cover letters).
 
-api.anthropic.com: optional, and only if the user enters their own API key, to draft a cover letter.
+open.er-api.com: daily exchange rates, no parameters, to compare salaries across currencies.
 
-Content script match patterns cover job application pages only, to show the "Fill with Jobora" button and fill the form when the user clicks it.
+Content scripts run on job application pages only, to show the "Fill with Jobora" button and fill the form when the user clicks it.
 ```
 

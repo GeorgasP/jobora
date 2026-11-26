@@ -237,7 +237,11 @@ export function scoreJob(jobItem, p) {
   // «Ζητείται φυσικοθεραπευτής» πρέπει να πιάνεται από το «Physiotherapist».
   const matchesTitle = (wanted, hay) =>
     phraseIn(wanted, hay) || aliasesFor(wanted).some((a) => hay.includes(a));
-  const titleHits = (p.titles || []).filter((t) => matchesTitle(t, title));
+  // A shared ESCO occupation is the same job in any language: EURES ads are
+  // written in their country's language ("Verpleegkundige", "Servicekraft").
+  const sharesOccupation = (wanted) =>
+    (p.titleOccupations?.[wanted] || []).some((uri) => (jobItem.occupations || []).includes(uri));
+  const titleHits = (p.titles || []).filter((t) => matchesTitle(t, title) || sharesOccupation(t));
   const descHits = (p.titles || []).filter((t) => !titleHits.includes(t) && matchesTitle(t, description));
   if (titleHits.length) {
     score += W.title;

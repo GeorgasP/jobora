@@ -310,6 +310,12 @@ export const regionsOverlap = (a, b) =>
 /** The English name of a country key, e.g. "greece" → "Greece". */
 export const countryLabel = (country) => COUNTRIES[country]?.label || "";
 
+/** The ISO code of a country key, e.g. "greece" → "GR". */
+export const countryCode = (country) => COUNTRIES[country]?.code || "";
+
+/** The country key for an ISO code, e.g. "GR" or "gr" → "greece", or null. */
+export const countryFromCode = (code) => CODES.get(String(code || "").toUpperCase()) || null;
+
 /**
  * What a place the user typed refers to: remote work, a city, a country, a
  * region, or (for places this file doesn't know, like a small town) the text itself.

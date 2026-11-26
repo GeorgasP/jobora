@@ -58,6 +58,14 @@ those credentials and the country codes you chose to search, because that is
 how their API identifies the caller. Your CV, name and contact details are
 still not sent. Without a key, no request is made to Adzuna at all.
 
+A second exception: **EURES and ESCO**, both run by the European Commission.
+EURES is the EU's job portal, where the public employment services of Europe
+publish their vacancies in every industry. To search it, the extension sends
+each job title you look for to ESCO (`ec.europa.eu`) once, to learn its
+standard occupation code, and then asks EURES (`europa.eu`) for vacancies with
+those occupation codes in the European countries where you want to work. Your
+CV, name and contact details are never sent.
+
 **2. Currency exchange rates.** Once a day the extension requests published
 exchange rates from `open.er-api.com`, so that a minimum salary you set in one
 currency can be compared against a job advertised in another. The request has

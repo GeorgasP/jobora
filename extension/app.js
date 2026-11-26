@@ -86,7 +86,7 @@ const stageName = (key) => t(`stage.${key}`);
 // Τα ακρωνύμια θέλουν χειροκίνητη γραφή· στα υπόλοιπα αρκεί κεφαλαίο αρχικό.
 // Οι όροι του Adzuna ζητούν κάθε αγγελία τους να φέρει «Jobs by Adzuna».
 // Είναι το τίμημα του δωρεάν κλειδιού και είναι δίκαιο: τα δεδομένα δικά τους.
-const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs",
+const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs", eures: "EURES",
                         skywalker: "Skywalker.gr", psf: "ΠΣΦ", ordino: "Ordino" };
 const sourceLabel = (s) => SOURCE_LABELS[s] || s;
 
