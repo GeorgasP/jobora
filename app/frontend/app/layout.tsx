@@ -6,11 +6,11 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "JobHunter — AI-powered job applications, on autopilot",
+  title: "Jobora — AI-powered job applications, on autopilot",
   description:
-    "Stop spending 100 hours on job applications. JobHunter scouts 100+ companies daily, generates personalized cover letters with AI, and pre-fills applications. You just show up to the interview.",
+    "Stop spending 100 hours on job applications. Jobora scouts 100+ companies daily, generates personalized cover letters with AI, and pre-fills applications. You just show up to the interview.",
   openGraph: {
-    title: "JobHunter — AI-powered job applications",
+    title: "Jobora — AI-powered job applications",
     description:
       "Apply to 50 jobs/week in 30 minutes. AI does the grunt work.",
     type: "website",

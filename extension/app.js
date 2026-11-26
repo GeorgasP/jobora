@@ -234,10 +234,12 @@ function renderCards() {
   $("#count").textContent = t("filter.showing", { shown: list.length, total: matches.length });
 
   if (!list.length) {
+    const scanning = $("#scan").disabled;
+    const scanKey = scanning ? "header.scanning" : "header.scan";
     $("#cards").innerHTML = `<div class="empty"><div class="e">🔍</div>
       <b>${esc(t(matches.length ? "cards.empty.noFilter" : "cards.empty.noMatches"))}</b>
       <p>${esc(t(matches.length ? "cards.empty.tryFilter" : "cards.empty.hint"))}</p>
-      ${matches.length ? "" : '<button class="btn primary" onclick="document.getElementById(\'scan\').click()">Scan now</button>'}
+      ${matches.length ? "" : `<button class="btn primary" data-scan ${scanning ? "disabled" : ""}><span data-i18n="${scanKey}">${esc(t(scanKey))}</span></button>`}
     </div>`;
     return;
   }
@@ -566,6 +568,10 @@ $("#reload-ext").onclick = () => {
 
 /* ── Actions ──────────────────────────────────────────────── */
 $("#cards").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-scan]")) {
+    $("#scan").click();
+    return;
+  }
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
   const id = btn.closest(".card").dataset.id;
@@ -595,13 +601,27 @@ $$(".chip-filter").forEach((c) => c.onclick = () => {
   renderCards();
 });
 
+function setScanning(scanning) {
+  const key = scanning ? "header.scanning" : "header.scan";
+  $$("[data-scan]").forEach((btn) => {
+    btn.disabled = scanning;
+    const label = btn.querySelector("[data-i18n]");
+    label.dataset.i18n = key;
+    label.textContent = t(key);
+  });
+}
+
 $("#scan").onclick = async () => {
-  const btn = $("#scan");
-  btn.disabled = true;
-  btn.textContent = t("header.scanning");
-  const res = await send({ type: "scan" });
-  btn.disabled = false;
-  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg> Scan now`;
+  if ($("#scan").disabled) return;
+  setScanning(true);
+  let res;
+  try {
+    res = await send({ type: "scan" });
+  } catch {
+    return toast(t("toast.scanFailed"), "bad");
+  } finally {
+    setScanning(false);
+  }
   if (!res?.ok) return toast(res?.error || t("toast.scanFailed"), "bad");
   // «1 πηγή δεν απάντησε» δεν βοηθάει κανέναν να καταλάβει τι λείπει —
   // το όνομα και το σφάλμα το κάνουν.

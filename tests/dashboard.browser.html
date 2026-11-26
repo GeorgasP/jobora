@@ -1,0 +1,108 @@
+<!doctype html><meta charset="utf-8"><title>Dashboard translation regression check</title>
+<pre id="result">RUNNING</pre><iframe id="dashboard" style="width:1100px;height:900px"></iframe>
+<script type="module">
+const result = document.querySelector("#result");
+window.testStorage = {
+  profile: { name: "Test User", email: "test@example.test", titles: ["Data Analyst"], uiLanguage: "el" },
+  fx: { rates: { EUR: 1, USD: 1 }, at: Date.now() },
+};
+window.scanQueue = [];
+window.matchRequests = 0;
+window.browserErrors = [];
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const waitFor = async (predicate, message) => {
+  for (let n = 0; n < 100; n++) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  throw new Error(message);
+};
+const success = { ok: true, seen: 0, added: 0, matches: 0, seconds: 1, sources: [] };
+try {
+  const base = new URL("../extension/", location.href).href;
+  const html = await (await fetch(base + "app.html")).text();
+  const shim = `<base href="${base}"><script>
+    window.addEventListener('error', e => parent.browserErrors.push(e.message));
+    window.addEventListener('unhandledrejection', e => parent.browserErrors.push(String(e.reason)));
+    window.chrome = {
+      storage: { local: {
+        get: async key => ({ [key]: structuredClone(parent.testStorage[key]) }),
+        set: async patch => Object.assign(parent.testStorage, structuredClone(patch))
+      } },
+      i18n: { getUILanguage: () => 'en' },
+      runtime: {
+        getURL: path => '${base}' + path,
+        sendMessage: async message => {
+          if (message.type === 'scan') return new Promise((resolve, reject) => parent.scanQueue.push({ resolve, reject }));
+          if (message.type === 'matches') { parent.matchRequests++; return { matches: [] }; }
+          return { ok: true };
+        }
+      }
+    };
+  <` + `/script>`;
+  const frame = document.querySelector("#dashboard");
+  frame.srcdoc = html.replace("<head>", "<head>" + shim);
+  await waitFor(() => frame.contentDocument?.querySelector("#cards [data-scan]") &&
+    frame.contentDocument?.querySelector("#name")?.value === "Test User", "dashboard did not initialize");
+  const doc = frame.contentDocument;
+  const scan = doc.querySelector("#scan");
+  const icon = scan.querySelector("svg");
+  assert(doc.querySelector(".brand b").textContent === "Jobora", "dashboard branding is inconsistent");
+  const assertControls = (strings, busy) => {
+    const key = busy ? "header.scanning" : "header.scan";
+    const controls = doc.querySelectorAll("[data-scan]");
+    assert(controls.length === 2, "header or empty-state scan action is missing");
+    for (const button of controls) {
+      assert(button.disabled === busy, "scan action has the wrong loading state");
+      assert(button.textContent.trim() === strings[key], "scan action lost its translation");
+      assert(button.querySelector("[data-i18n]").dataset.i18n === key, "scan action lost its translation binding");
+    }
+    assert(scan.querySelector("svg") === icon, "scan replaced its icon");
+  };
+  const locales = {};
+  for (const code of ["en", "el", "es", "de", "fr", "it", "pt", "pl"]) {
+    const strings = locales[code] = await (await fetch(base + `locales/${code}.json`)).json();
+    const select = doc.querySelector("#uiLanguage");
+    select.value = code;
+    await select.onchange();
+    assertControls(strings, false);
+    const task = scan.onclick();
+    assertControls(strings, true);
+    assert(scanQueue.length === 1, "scan did not send exactly one request");
+    doc.querySelector("#cards [data-scan]").click();
+    assert(scanQueue.length === 1, "disabled empty-state action started another scan");
+    scanQueue.shift().resolve(success);
+    await task;
+    assertControls(strings, false);
+  }
+
+  // A language change also re-renders the empty state while a scan is pending.
+  const pending = scan.onclick();
+  const select = doc.querySelector("#uiLanguage");
+  select.value = "fr";
+  await select.onchange();
+  assertControls(locales.fr, true);
+  scanQueue.shift().resolve({ ok: false });
+  await pending;
+  assertControls(locales.fr, false);
+  assert(doc.querySelector(".toast").textContent === locales.fr["toast.scanFailed"], "failure message lost the selected language");
+
+  const rejected = scan.onclick();
+  scanQueue.shift().reject(new Error("synthetic connection failure"));
+  await rejected;
+  assertControls(locales.fr, false);
+  assert(doc.querySelector(".toast").textContent === locales.fr["toast.scanFailed"], "rejected scan did not show a translated error");
+
+  // Click the nested label to exercise event delegation without inline scripts.
+  const previousMatches = matchRequests;
+  doc.querySelector("#cards [data-scan] span").click();
+  assert(scanQueue.length === 1, "empty-state action did not start a scan");
+  assertControls(locales.fr, true);
+  scanQueue.shift().resolve(success);
+  await waitFor(() => matchRequests > previousMatches &&
+    !doc.querySelector("#cards [data-scan]").disabled, "empty-state scan did not finish");
+  assertControls(locales.fr, false);
+  assert(browserErrors.length === 0, browserErrors.join("; "));
+  result.textContent = "PASS: Jobora branding, scan translations in all eight languages, loading, success, failed responses, rejected requests, language change during scan, preserved icon, and empty-state action; no browser errors.";
+} catch (error) { result.textContent = "FAIL: " + error.stack + "\n" + browserErrors.join("; "); }
+</script>
