@@ -56,6 +56,20 @@ test("similarly plausible people are left for the user to resolve", () => {
   assert.equal(guessFromCV("Alex Johnson\nSam Wilson").name, "");
 });
 
+test("the job title under a name does not hide the name", () => {
+  for (const [header, name] of [
+    ["Maria Papadopoulou\nSenior Data Analyst\nmaria@example.test", "Maria Papadopoulou"],
+    ["Maria Papadopoulou\nProject Coordinator\nmaria@example.test", "Maria Papadopoulou"],
+    ["Μαρία Παπαδοπούλου\nΑναλύτρια Δεδομένων\nmaria@example.test", "Μαρία Παπαδοπούλου"],
+    ["Lukas Meier\nBackend Developer\nlukas@example.test", "Lukas Meier"],
+    ["Lukas Meier\nZurich, Switzerland\nlukas@example.test", "Lukas Meier"],
+  ]) assert.equal(guessFromCV(header).name, name, header);
+});
+
+test("a surname that is also an occupation is not taken for a job title", () => {
+  assert.equal(guessFromCV("Paul Nurse\nResearch Scientist\npaul@example.test").name, "Paul Nurse");
+});
+
 test("job title suggestions still work independently of name extraction", () => {
   const found = guessFromCV("Dimitra Mousounaki\nBarista\nBarista\nRegistered Nurse");
   assert.equal(found.name, "Dimitra Mousounaki");

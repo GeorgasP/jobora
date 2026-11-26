@@ -351,6 +351,73 @@ const NON_NAME_WORDS = new Set((
 const PROFESSION_NAMES = new Set(COMMON_TITLES.map(foldName));
 const NAME_WORD = /^[\p{L}\p{M}]+(?:['’.-][\p{L}\p{M}]+)*\.?$/u;
 
+// Known titles of two or more words. A phrase that contains one is a role even
+// with a qualifier in front: "Senior Data Analyst" contains "data analyst".
+// One-word titles are left out on purpose: "Baker" or "Cook" may be a surname.
+const MULTI_WORD_TITLES = [...PROFESSION_NAMES].filter((title) => title.includes(" "));
+
+// Words that name a role and are not used as surnames, in the languages the app
+// is translated into. They catch the job title under a name, which is
+// capitalised and close to the contact details just like the name itself.
+// Occupations that are also surnames (Baker, Cook, Nurse) stay out.
+// Written folded, like foldName() returns them: lower case, no accents.
+const ROLE_WORDS = new Set([
+  // English
+  "analyst", "manager", "engineer", "developer", "programmer", "consultant", "specialist",
+  "coordinator", "administrator", "assistant", "director", "officer", "executive",
+  "representative", "technician", "designer", "architect", "scientist", "researcher",
+  "accountant", "advisor", "adviser", "recruiter", "supervisor", "receptionist",
+  "intern", "trainee", "apprentice", "student", "graduate", "freelancer",
+  // Greek
+  "αναλυτης", "αναλυτρια", "μηχανικος", "προγραμματιστης", "προγραμματιστρια",
+  "υπευθυνος", "υπευθυνη", "διευθυντης", "διευθυντρια", "συμβουλος", "βοηθος",
+  "λογιστης", "λογιστρια", "υπαλληλος", "στελεχος", "συντονιστης", "συντονιστρια",
+  "σχεδιαστης", "σχεδιαστρια", "φοιτητης", "φοιτητρια", "ασκουμενος", "ασκουμενη",
+  // German
+  "berater", "beraterin", "entwickler", "entwicklerin", "ingenieur", "ingenieurin",
+  "sachbearbeiter", "sachbearbeiterin", "referent", "referentin", "assistentin",
+  // Spanish, Portuguese, Italian
+  "analista", "ingeniero", "ingeniera", "engenheiro", "engenheira", "ingegnere",
+  "desarrollador", "desarrolladora", "desenvolvedor", "desenvolvedora", "sviluppatore",
+  "gerente", "asesor", "asesora", "consultor", "consultora", "consulente",
+  "coordinador", "coordinadora", "coordenador", "coordenadora", "responsabile",
+  "asistente", "assistente", "estudiante", "estudante", "studente",
+  // French
+  "analyste", "developpeur", "developpeuse", "conseiller", "conseillere",
+  "technicien", "technicienne", "comptable", "etudiant", "etudiante", "gestionnaire",
+  // Polish
+  "analityk", "inzynier", "programista", "programistka", "kierownik", "specjalista",
+  "specjalistka", "konsultant", "konsultantka", "asystent", "asystentka", "ksiegowa",
+]);
+
+/** True when a phrase, given as folded words, reads as a job title rather than a person. */
+function looksLikeJobTitle(foldedWords) {
+  const phrase = foldedWords.join(" ");
+  if (PROFESSION_NAMES.has(phrase)) return true;
+  if (foldedWords.some((word) => ROLE_WORDS.has(word))) return true;
+  return MULTI_WORD_TITLES.some((title) => ` ${phrase} `.includes(` ${title} `));
+}
+
+// Evidence that a phrase is the applicant's name, in points. A label ("Name:")
+// or a match with the e-mail or LinkedIn handle is strong evidence; layout
+// clues (capitals, position, nearby contact details) are weak on their own.
+const NAME_EVIDENCE = {
+  labelled: 12,              // "Name: Dimitra Mousounaki"
+  matchesHandle: 10,         // dimitra.mousounaki@… or linkedin.com/in/dmousounaki
+  capitalised: 3,            // every word starts with a capital letter
+  firstLine: 3,
+  nearTop: 2,                // within NEAR_TOP_LINES lines, but not the first one
+  nearContact: 2,            // within NEAR_CONTACT_LINES of the e-mail, phone or LinkedIn
+  joinedFromTwoLines: -0.5,  // first and last name drawn on separate lines
+};
+const NEAR_TOP_LINES = 20;
+const NEAR_CONTACT_LINES = 2;
+// The winner needs at least MIN_NAME_SCORE points and a lead of MIN_LEAD over
+// the runner-up. Otherwise the name stays empty for the user to type: a wrong
+// name on job applications is worse than an empty field.
+const MIN_NAME_SCORE = 3;
+const MIN_LEAD = 2;
+
 function nameLabel(line) {
   const colon = line.search(/[:：]/);
   if (colon >= 0 && NAME_LABELS.has(foldName(line.slice(0, colon).trim()))) {
@@ -359,6 +426,14 @@ function nameLabel(line) {
   return { labelled: NAME_LABELS.has(foldName(line)), value: "" };
 }
 
+/**
+ * Picks the applicant's name from the CV text, or returns "" when unsure.
+ *
+ * Every line that could be a name (and every pair of one-word lines, for PDFs
+ * that draw first and last name apart) becomes a candidate and collects the
+ * points in NAME_EVIDENCE. Job titles, headings and qualifications are not
+ * candidates at all, so they cannot tie with the real name.
+ */
 function guessName(text, contact) {
   const lines = text.normalize("NFKC").split(/\r\n?|\n/)
     .map((line) => line.replace(/^[#*•\s]+|[*\s]+$/g, "").replace(/\s+/g, " "));
@@ -375,7 +450,7 @@ function guessName(text, contact) {
     const words = value.split(/\s+/);
     if (words.length < (labelled ? 1 : 2) || words.length > 6 || !words.every((w) => NAME_WORD.test(w))) return;
     const folded = words.map(foldName);
-    if (folded.some((w) => NON_NAME_WORDS.has(w)) || PROFESSION_NAMES.has(folded.join(" "))) return;
+    if (folded.some((w) => NON_NAME_WORDS.has(w)) || looksLikeJobTitle(folded)) return;
     const significant = folded.filter((w) => !NAME_PARTICLES.has(w)).map((w) => w.replace(/[^\p{L}]/gu, ""));
     if (!significant.length || (!labelled && significant.filter((w) => w.length > 1).length < 2)) return;
 
@@ -383,13 +458,14 @@ function guessName(text, contact) {
     const first = significant[0], last = significant.at(-1);
     const matchesAlias = significant.length >= 2 && last.length >= 3 && aliases.some((alias) =>
       alias.includes(last) && (alias.includes(first) || alias.startsWith(first[0])));
-    let score = labelled ? 12 : 0;
-    if (matchesAlias) score += 10;
-    if (capitals) score += 3;
-    if (index === 0) score += 3;
-    else if (index < 20) score += 2;
-    if (contactLines.some((i) => Math.abs(i - index) <= 2)) score += 2;
-    if (joined) score -= 0.5;
+    let score = 0;
+    if (labelled) score += NAME_EVIDENCE.labelled;
+    if (matchesAlias) score += NAME_EVIDENCE.matchesHandle;
+    if (capitals) score += NAME_EVIDENCE.capitalised;
+    if (index === 0) score += NAME_EVIDENCE.firstLine;
+    else if (index < NEAR_TOP_LINES) score += NAME_EVIDENCE.nearTop;
+    if (contactLines.some((i) => Math.abs(i - index) <= NEAR_CONTACT_LINES)) score += NAME_EVIDENCE.nearContact;
+    if (joined) score += NAME_EVIDENCE.joinedFromTwoLines;
     const key = foldName(value);
     if (score > (candidates.get(key)?.score ?? -1)) candidates.set(key, { value, score });
   };
@@ -415,10 +491,9 @@ function guessName(text, contact) {
       }
     }
   }
-  const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
-  const best = ranked[0];
-  // Do not turn an uncertain phrase into the identity used on applications.
-  if (!best || best.score < 3 || (ranked[1] && best.score - ranked[1].score < 2)) return "";
+  const [best, runnerUp] = [...candidates.values()].sort((a, b) => b.score - a.score);
+  if (!best || best.score < MIN_NAME_SCORE) return "";
+  if (runnerUp && best.score - runnerUp.score < MIN_LEAD) return "";
   return best.value;
 }
 
