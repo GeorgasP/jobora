@@ -1,0 +1,30 @@
+# Runs the CV parsing tests on every pull request and on every push to main,
+# so a change that breaks name or title detection shows up before it is merged.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# The tests only read the code; the workflow needs no other access.
+permissions:
+  contents: read
+
+jobs:
+  cv-tests:
+    name: CV parsing tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      # 22 is the oldest version extension/README.md supports, so passing here
+      # means it passes on every newer one too.
+      - name: Install Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Run the tests
+        run: node --test tests/cv.test.mjs

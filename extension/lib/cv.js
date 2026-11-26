@@ -140,6 +140,42 @@ async function pdfText(bytes) {
     .replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, " ")
     .replace(/\\(\d{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
 
+  const decodeText = (token, map) => {
+    if (token[0] === "(") {
+      const body = unescapeLiteral(token.slice(1, -1));
+      return map ? decodeWithMap(body, map) : body;
+    }
+    const hex = token.slice(1, -1).replace(/\s+/g, "");
+    let out = "";
+    const width = map ? 4 : 2;
+    for (let i = 0; i + width <= hex.length; i += width) {
+      const code = parseInt(hex.slice(i, i + width), 16);
+      out += map ? map.get(code) ?? "" : String.fromCharCode(code);
+    }
+    return out;
+  };
+
+  const decodeArray = (array, map) => {
+    let out = "", adjustment = 0;
+    const parts = /\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?![\d.])|%[^\r\n]*(?=\r|\n|$)/g;
+    for (const part of array.matchAll(parts)) {
+      const token = part[0];
+      if (token[0] === "%") continue;
+      if (token[0] !== "(" && token[0] !== "<") {
+        adjustment += Number(token);
+        continue;
+      }
+      const text = decodeText(token, map);
+      if (!text) continue;
+      // TJ offsets use thousandths of text space. A large negative offset
+      // advances to the next word; small offsets only adjust letter kerning.
+      if (out && adjustment <= -200 && !/\s$/.test(out) && !/^\s/.test(text)) out += " ";
+      out += text;
+      adjustment = 0;
+    }
+    return out;
+  };
+
   const chunks = [];
   // Τα Tm/Td δεν σημαίνουν πάντα νέα γραμμή — ο Chrome τα χρησιμοποιεί και για
   // μετακίνηση μέσα στην ίδια γραμμή. Κοιτάμε αν άλλαξε το Y.
@@ -149,6 +185,7 @@ async function pdfText(bytes) {
     /\((?:\\.|[^\\()])*\)/,                        // literal string
     /((?:-?[\d.]+\s+){6})Tm/,                      // 3: text matrix
     /((?:-?[\d.]+\s+){2})T[dD]/,                   // 4: text displacement
+    /\[((?:\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?![\d.])|\s|%[^\r\n]*(?=\r|\n|$))*)\]\s*TJ/, // 5: text array
     /T\*|ET|BT/,
   ].map((r) => r.source).join("|"), "g");
 
@@ -165,8 +202,8 @@ async function pdfText(bytes) {
     let map = null;
     let lastY = null, lastX = null;
 
-    // Τα κενά είναι κανονικά glyphs μέσα στο κείμενο· το Td μετακινεί απλώς τον
-    // κέρσορα ανά γράμμα. Νέα γραμμή μόνο όταν αλλάζει το Y.
+    // Cursor moves can stay within a word. Only a change of baseline creates
+    // a newline; numeric word gaps inside TJ arrays are handled separately.
     const moved = (x, y) => {
       if (lastY !== null && Math.abs(y - lastY) > 2) chunks.push("\n");
       lastY = y; lastX = x;
@@ -188,29 +225,18 @@ async function pdfText(bytes) {
         moved((lastX ?? 0) + n[0], (lastY ?? 0) + n[1]);
         continue;
       }
-      if (g[2] !== undefined) {                    // <00030004> hex string
-        const hex = g[2].replace(/\s+/g, "");
-        if (map) {
-          // Με CMap: 4 hex ψηφία = ένας κωδικός glyph, απευθείας στον χάρτη.
-          let out = "";
-          for (let i = 0; i + 3 < hex.length; i += 4) out += map.get(parseInt(hex.slice(i, i + 4), 16)) ?? "";
-          chunks.push(out);
-        } else {
-          // Χωρίς CMap: 2 hex ψηφία = ένας χαρακτήρας.
-          let out = "";
-          for (let i = 0; i + 1 < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-          chunks.push(out);
-        }
+      if (g[5] !== undefined) {                    // [(First)-260(Last)] TJ
+        chunks.push(decodeArray(g[5], map));
         continue;
       }
-      if (token[0] === "(") {                      // (literal)
-        const body = unescapeLiteral(token.slice(1, -1));
-        chunks.push(map ? decodeWithMap(body, map) : body);
+      if (g[2] !== undefined || token[0] === "(") {
+        chunks.push(decodeText(token, map));
         continue;
       }
       if (token === "T*") { chunks.push("\n"); lastY = null; }
       else if (token === "ET" || token === "BT") { lastX = null; }
     }
+    chunks.push("\n");
     if (chunks.length > 60000) break;
   }
 
@@ -288,18 +314,245 @@ export async function readCV(file) {
   };
 }
 
-/* ── Τι μπορούμε να μαντέψουμε από το κείμενο ─────────────── */
+/* ── What we can guess from the text ─────────────────────── */
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]*[\w]/;
 const PHONE_RE = /(\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3}[\s.-]?\d{3,4}/;
 const LINKEDIN_RE = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[\w\-%]+/i;
 const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w\-]+/i;
 
 
-/** Μαντεύει στοιχεία επικοινωνίας + πιθανούς τίτλους από το κείμενο του CV. */
-// Το ίδιο λεξιλόγιο με τις προτάσεις: ό,τι μπορεί να προταθεί μπορεί και να
-// αναγνωριστεί μέσα στο βιογραφικό.
+// The same vocabulary as the title suggestions: anything the app can suggest,
+// it can also recognise inside a CV.
 const COMMON_TITLES = ALL_PROFESSIONS;
 
+const foldName = (s) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+const NAME_LABELS = new Set([
+  "name", "full name", "first and last name", "ονομα", "ονοματεπωνυμο", "ονομα και επωνυμο",
+  "nombre", "nombre completo", "nom", "nom complet", "nome", "nome completo",
+  "vollstandiger name", "imie i nazwisko",
+]);
+const NAME_PARTICLES = new Set(["al", "bin", "da", "das", "de", "del", "della", "der", "di", "do", "dos", "du", "la", "le", "van", "von", "y"]);
+// These describe CV sections, qualifications, organisations or prose. Occupations
+// such as Baker and Cook are deliberately absent: they can also be surnames.
+const NON_NAME_WORDS = new Set((
+  "cv curriculum vitae resume training trained certification certifications certificate certified " +
+  "education qualifications qualification experience employment professional profile personal details " +
+  "summary objective skills interests hobbies language languages references contact information address " +
+  "university college school academy institute company corporation ltd limited inc group services " +
+  "bachelor bachelors master masters degree diploma course courses award awards work history " +
+  "software engineering development management customer service sales marketing human resources " +
+  "street road avenue city country phone telephone email linkedin github native fluent intermediate " +
+  "excellent strong team player communication available upon request citizen citizenship nationality " +
+  "authorization eligible permit the and with for of in at " +
+  "βιογραφικο σημειωμα εκπαιδευση καταρτιση πιστοποιηση σεμιναριο σεμιναρια πτυχιο εμπειρια " +
+  "επαγγελματικη δεξιοτητες γλωσσες συστασεις επικοινωνια στοιχεια διευθυνση τηλεφωνο"
+).split(/\s+/));
+const PROFESSION_NAMES = new Set(COMMON_TITLES.map(foldName));
+const NAME_WORD = /^[\p{L}\p{M}]+(?:['’.-][\p{L}\p{M}]+)*\.?$/u;
+
+// Known titles of two or more words. A phrase that contains one is a role even
+// with a qualifier in front: "Senior Data Analyst" contains "data analyst".
+// One-word titles are left out on purpose: "Baker" or "Cook" may be a surname.
+const MULTI_WORD_TITLES = [...PROFESSION_NAMES].filter((title) => title.includes(" "));
+
+// Words that name a role and are not used as surnames, in the languages the app
+// is translated into. They catch the job title under a name, which is
+// capitalised and close to the contact details just like the name itself.
+// Occupations that are also surnames (Baker, Cook, Nurse) stay out.
+// Written folded, like foldName() returns them: lower case, no accents.
+const ROLE_WORDS = new Set([
+  // English
+  "analyst", "manager", "engineer", "developer", "programmer", "consultant", "specialist",
+  "coordinator", "administrator", "assistant", "director", "officer", "executive",
+  "representative", "technician", "designer", "architect", "scientist", "researcher",
+  "accountant", "advisor", "adviser", "recruiter", "supervisor", "receptionist",
+  "intern", "trainee", "apprentice", "student", "graduate", "freelancer",
+  // Greek
+  "αναλυτης", "αναλυτρια", "μηχανικος", "προγραμματιστης", "προγραμματιστρια",
+  "υπευθυνος", "υπευθυνη", "διευθυντης", "διευθυντρια", "συμβουλος", "βοηθος",
+  "λογιστης", "λογιστρια", "υπαλληλος", "στελεχος", "συντονιστης", "συντονιστρια",
+  "σχεδιαστης", "σχεδιαστρια", "φοιτητης", "φοιτητρια", "ασκουμενος", "ασκουμενη",
+  // German
+  "berater", "beraterin", "entwickler", "entwicklerin", "ingenieur", "ingenieurin",
+  "sachbearbeiter", "sachbearbeiterin", "referent", "referentin", "assistentin",
+  // Spanish, Portuguese, Italian
+  "analista", "ingeniero", "ingeniera", "engenheiro", "engenheira", "ingegnere",
+  "desarrollador", "desarrolladora", "desenvolvedor", "desenvolvedora", "sviluppatore",
+  "gerente", "asesor", "asesora", "consultor", "consultora", "consulente",
+  "coordinador", "coordinadora", "coordenador", "coordenadora", "responsabile",
+  "asistente", "assistente", "estudiante", "estudante", "studente",
+  // French
+  "analyste", "developpeur", "developpeuse", "conseiller", "conseillere",
+  "technicien", "technicienne", "comptable", "etudiant", "etudiante", "gestionnaire",
+  // Polish
+  "analityk", "inzynier", "programista", "programistka", "kierownik", "specjalista",
+  "specjalistka", "konsultant", "konsultantka", "asystent", "asystentka", "ksiegowa",
+]);
+
+/** True when a phrase, given as folded words, reads as a job title rather than a person. */
+function looksLikeJobTitle(foldedWords) {
+  const phrase = foldedWords.join(" ");
+  if (PROFESSION_NAMES.has(phrase)) return true;
+  if (foldedWords.some((word) => ROLE_WORDS.has(word))) return true;
+  return MULTI_WORD_TITLES.some((title) => ` ${phrase} `.includes(` ${title} `));
+}
+
+// Evidence that a phrase is the applicant's name, in points. A label ("Name:")
+// or a match with the e-mail or LinkedIn handle is strong evidence; layout
+// clues (capitals, position, nearby contact details) are weak on their own.
+const NAME_EVIDENCE = {
+  labelled: 12,              // "Name: Dimitra Mousounaki"
+  matchesHandle: 10,         // dimitra.mousounaki@… or linkedin.com/in/dmousounaki
+  capitalised: 3,            // every word starts with a capital letter
+  firstLine: 3,
+  nearTop: 2,                // within NEAR_TOP_LINES lines, but not the first one
+  nearContact: 2,            // within NEAR_CONTACT_LINES of the e-mail, phone or LinkedIn
+  joinedFromTwoLines: -0.5,  // first and last name drawn on separate lines
+};
+const NEAR_TOP_LINES = 20;
+const NEAR_CONTACT_LINES = 2;
+// The winner needs at least MIN_NAME_SCORE points and a lead of MIN_LEAD over
+// the runner-up. Otherwise the name stays empty for the user to type: a wrong
+// name on job applications is worse than an empty field.
+const MIN_NAME_SCORE = 3;
+const MIN_LEAD = 2;
+
+function nameLabel(line) {
+  const colon = line.search(/[:：]/);
+  if (colon >= 0 && NAME_LABELS.has(foldName(line.slice(0, colon).trim()))) {
+    return { labelled: true, value: line.slice(colon + 1).trim() };
+  }
+  return { labelled: NAME_LABELS.has(foldName(line)), value: "" };
+}
+
+/**
+ * Picks the applicant's name from the CV text, or returns "" when unsure.
+ *
+ * Every line that could be a name (and every pair of one-word lines, for PDFs
+ * that draw first and last name apart) becomes a candidate and collects the
+ * points in NAME_EVIDENCE. Job titles, headings and qualifications are not
+ * candidates at all, so they cannot tie with the real name.
+ */
+function guessName(text, contact) {
+  const lines = text.normalize("NFKC").split(/\r\n?|\n/)
+    .map((line) => line.replace(/^[#*•\s]+|[*\s]+$/g, "").replace(/\s+/g, " "));
+  const aliases = [contact.email.split("@")[0], contact.linkedin.split("/").pop() || ""]
+    .filter(Boolean).map((s) => foldName(s).replace(/[^\p{L}]/gu, ""));
+  const contactLines = lines.map((line, i) =>
+    [contact.email, contact.phone, contact.linkedin].some((s) => s && line.includes(s)) ? i : -1
+  ).filter((i) => i >= 0);
+  const candidates = new Map();
+
+  const add = (value, index, labelled = false, joined = false) => {
+    value = value.replace(/^(?:mr|mrs|ms|miss|dr|prof)\.?\s+/i, "").trim();
+    if (value.length < 2 || value.length > 70) return;
+    const words = value.split(/\s+/);
+    if (words.length < (labelled ? 1 : 2) || words.length > 6 || !words.every((w) => NAME_WORD.test(w))) return;
+    const folded = words.map(foldName);
+    if (folded.some((w) => NON_NAME_WORDS.has(w)) || looksLikeJobTitle(folded)) return;
+    const significant = folded.filter((w) => !NAME_PARTICLES.has(w)).map((w) => w.replace(/[^\p{L}]/gu, ""));
+    if (!significant.length || (!labelled && significant.filter((w) => w.length > 1).length < 2)) return;
+
+    const capitals = words.every((w, i) => NAME_PARTICLES.has(folded[i]) || /^\p{Lu}/u.test(w));
+    const first = significant[0], last = significant.at(-1);
+    const matchesAlias = significant.length >= 2 && last.length >= 3 && aliases.some((alias) =>
+      alias.includes(last) && (alias.includes(first) || alias.startsWith(first[0])));
+    let score = 0;
+    if (labelled) score += NAME_EVIDENCE.labelled;
+    if (matchesAlias) score += NAME_EVIDENCE.matchesHandle;
+    if (capitals) score += NAME_EVIDENCE.capitalised;
+    if (index === 0) score += NAME_EVIDENCE.firstLine;
+    else if (index < NEAR_TOP_LINES) score += NAME_EVIDENCE.nearTop;
+    if (contactLines.some((i) => Math.abs(i - index) <= NEAR_CONTACT_LINES)) score += NAME_EVIDENCE.nearContact;
+    if (joined) score += NAME_EVIDENCE.joinedFromTwoLines;
+    const key = foldName(value);
+    if (score > (candidates.get(key)?.score ?? -1)) candidates.set(key, { value, score });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const label = nameLabel(lines[i]);
+    if (label.labelled) {
+      const value = label.value || lines[i + 1] || "";
+      // A label may precede a first and last name on separate lines.
+      const next = lines[i + (label.value ? 1 : 2)] || "";
+      if (NAME_WORD.test(value) && NAME_WORD.test(next) &&
+          !NON_NAME_WORDS.has(foldName(next)) && !PROFESSION_NAMES.has(foldName(next))) {
+        add(`${value} ${next}`, i, true);
+      } else {
+        add(value, i, true);
+      }
+    } else {
+      add(lines[i], i);
+      // PDF generators sometimes draw a first and last name on separate lines.
+      if (NAME_WORD.test(lines[i]) && NAME_WORD.test(lines[i + 1] || "") &&
+          !PROFESSION_NAMES.has(foldName(lines[i])) && !PROFESSION_NAMES.has(foldName(lines[i + 1]))) {
+        add(`${lines[i]} ${lines[i + 1]}`, i, false, true);
+      }
+    }
+  }
+  const [best, runnerUp] = [...candidates.values()].sort((a, b) => b.score - a.score);
+  if (!best || best.score < MIN_NAME_SCORE) return "";
+  if (runnerUp && best.score - runnerUp.score < MIN_LEAD) return "";
+  return best.value;
+}
+
+// Where a job title appears says more than how often it appears. The headline
+// under the name and the start of a line (where CVs put the role of each job)
+// describe the person's own work; a title inside a sentence ("customers of
+// brokers") usually describes someone else's.
+const TITLE_WEIGHT = { headline: 3, lineStart: 2, elsewhere: 1 };
+const HEADLINE_LINES = 5;
+const MAX_TITLE_SUGGESTIONS = 5;
+
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Whole words only, so "Trader" does not match inside "MetaTrader", nor
+// "Pilot" inside "Copilot". Longest first, so "Primary School Teacher" claims
+// its words before "Teacher" can.
+const TITLE_PATTERNS = [...COMMON_TITLES]
+  .sort((a, b) => b.length - a.length)
+  .map((title) => ({
+    title,
+    lowerCase: title.toLowerCase(),
+    pattern: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(title)}(?![\\p{L}\\p{N}])`, "giu"),
+  }));
+
+/** The job titles a CV mentions, most telling first, at most MAX_TITLE_SUGGESTIONS. */
+function suggestTitles(text) {
+  const lowerText = text.toLowerCase();
+  const lines = text.split(/\r\n?|\n/)
+    .map((line) => line.replace(/^[\s#*•·–—-]+/, "").trim())
+    .filter(Boolean);
+  // Per line, the character ranges that a longer title has already claimed.
+  const claimed = lines.map(() => []);
+  const found = new Map();  // title → { title, score, firstLine }
+
+  for (const { title, lowerCase, pattern } of TITLE_PATTERNS) {
+    if (!lowerText.includes(lowerCase)) continue;  // cheap check before the regex
+    lines.forEach((line, lineIndex) => {
+      for (const match of line.matchAll(pattern)) {
+        const start = match.index, end = start + match[0].length;
+        if (claimed[lineIndex].some(([from, to]) => start < to && from < end)) continue;
+        claimed[lineIndex].push([start, end]);
+
+        const weight = lineIndex < HEADLINE_LINES ? TITLE_WEIGHT.headline
+          : start === 0 ? TITLE_WEIGHT.lineStart
+          : TITLE_WEIGHT.elsewhere;
+        const entry = found.get(title) ?? { title, score: 0, firstLine: lineIndex };
+        entry.score += weight;
+        found.set(title, entry);
+      }
+    });
+  }
+
+  // Most points first; on a tie, the title that appears earlier in the CV.
+  return [...found.values()]
+    .sort((a, b) => b.score - a.score || a.firstLine - b.firstLine)
+    .slice(0, MAX_TITLE_SUGGESTIONS)
+    .map((entry) => entry.title);
+}
+
+/** Guesses contact details, the applicant's name and likely job titles from the CV text. */
 export function guessFromCV(text) {
   const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
   if (!text) return out;
@@ -310,22 +563,11 @@ export function guessFromCV(text) {
   out.linkedin = (text.match(LINKEDIN_RE) || [""])[0];
   out.github = (text.match(GITHUB_RE) || [""])[0];
 
-  // Το όνομα είναι σχεδόν πάντα η πρώτη «καθαρή» γραμμή του CV.
-  for (const raw of text.split(/\n/).slice(0, 12)) {
-    const line = raw.replace(/^[#*\s]+/, "").trim();
-    if (line.length < 4 || line.length > 45) continue;
-    if (/[@\d]|http|curriculum|resume|\bcv\b/i.test(line)) continue;
-    const words = line.split(/\s+/);
-    if (words.length >= 2 && words.length <= 4) { out.name = line; break; }
-  }
+  // PDF storage order can differ from the visible header. Compare plausible
+  // names using labels and contact details, and reject qualifications.
+  out.name = guessName(text, out);
 
-  const low = text.toLowerCase();
-  const scored = COMMON_TITLES
-    .map((t) => ({ t, n: (low.match(new RegExp(t.toLowerCase(), "g")) || []).length }))
-    .filter((x) => x.n > 0)
-    .sort((a, b) => b.n - a.n);
-  out.titles = scored.slice(0, 5).map((x) => x.t);
-
+  out.titles = suggestTitles(text);
   return out;
 }
 

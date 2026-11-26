@@ -1,28 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-Έλεγχος πριν από κάθε υποβολή στο Chrome Web Store.
+Checks to run before every Chrome Web Store submission.
 
-Πιάνει ό,τι απορρίπτεται αυτόματα (manifest, εικονίδια, όρια χαρακτήρων) και
-ό,τι θα έσπαγε μόνο μετά την εγκατάσταση (domain εκτός host_permissions,
-κλειδί μετάφρασης που λείπει, στοιχείο DOM που δεν υπάρχει).
+Catches what the store rejects automatically (manifest, icons, character
+limits) and what would only break after installation (a domain missing from
+host_permissions, a missing translation key, a DOM element that doesn't exist).
 
     python store/preflight.py
 
-Δεν αντικαθιστά το store/SMOKE_TEST.md: το service worker, τα alarms, οι
-ειδοποιήσεις και η συμπλήρωση φορμών θέλουν πραγματικό Chrome.
+It does not replace store/SMOKE_TEST.md: the service worker, alarms,
+notifications and form filling need a real Chrome.
 """
 
 import json, pathlib, re, sys, zipfile
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-R = pathlib.Path(r"C:\Users\Panos\Desktop\JobHunt")
-E = R / "extension"
+
+# Found from this file's own location (<project>/store/preflight.py), so the
+# check works wherever the repository is cloned or moved to.
+PROJECT_DIR = pathlib.Path(__file__).resolve().parent.parent
+EXTENSION_DIR = PROJECT_DIR / "extension"
 
 fails, warns, oks = [], [], []
 def ok(m): oks.append(m)
 def bad(m): fails.append(m)
 def warn(m): warns.append(m)
 
-m = json.loads((E / "manifest.json").read_text(encoding="utf-8"))
+m = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
 
 # ── Υποχρεωτικά πεδία ────────────────────────────────────────────────
 if m.get("manifest_version") == 3: ok("manifest_version 3")
@@ -48,7 +51,7 @@ have = set(icons)
 if need <= have: ok(f"icons {sorted(have, key=int)}")
 else: bad(f"λείπουν εικονίδια: {sorted(need - have)}")
 for size, rel in icons.items():
-    f = E / rel
+    f = EXTENSION_DIR / rel
     if not f.exists(): bad(f"το εικονίδιο {size} δείχνει σε ανύπαρκτο αρχείο: {rel}")
 
 # ── Δικαιώματα: κάθε ένα θέλει δικαιολόγηση στη φόρμα ───────────────
@@ -69,20 +72,20 @@ if m.get("action", {}).get("default_popup"): refs.append(m["action"]["default_po
 for cs in m.get("content_scripts", []):
     refs += cs.get("js", []) + cs.get("css", [])
 for r in refs:
-    if not (E / r).exists(): bad(f"το manifest δηλώνει {r} που δεν υπάρχει")
+    if not (EXTENSION_DIR / r).exists(): bad(f"το manifest δηλώνει {r} που δεν υπάρχει")
 if refs: ok(f"{len(refs)} δηλωμένα αρχεία υπάρχουν όλα")
 
 # ── Απαγορευμένα σε MV3 ─────────────────────────────────────────────
-for f in E.rglob("*.js"):
+for f in EXTENSION_DIR.rglob("*.js"):
     src = f.read_text(encoding="utf-8", errors="replace")
-    rel = f.relative_to(E)
+    rel = f.relative_to(EXTENSION_DIR)
     if re.search(r'\beval\s*\(', src): bad(f"{rel}: eval() — απαγορεύεται")
     if re.search(r'new\s+Function\s*\(', src): bad(f"{rel}: new Function() — απαγορεύεται")
     if re.search(r'<script[^>]*src=["\']https?://', src):
         bad(f"{rel}: φορτώνει απομακρυσμένο script — απαγορεύεται")
 
 # ── Το ίδιο το zip ──────────────────────────────────────────────────
-z = sorted((R / "store/dist").glob("*.zip"))
+z = sorted((PROJECT_DIR / "store/dist").glob("*.zip"))
 if not z: bad("δεν υπάρχει zip στο store/dist — τρέξε python store/package.py")
 else:
     zf = z[-1]
@@ -99,7 +102,7 @@ else:
     if junk: warn(f"περιττά αρχεία στο zip: {junk[:4]}")
 
 # ── Screenshots ─────────────────────────────────────────────────────
-shots = list((R / "store/screenshots").glob("*.png")) + list((R / "store/screenshots").glob("*.jpg"))
+shots = list((PROJECT_DIR / "store/screenshots").glob("*.png")) + list((PROJECT_DIR / "store/screenshots").glob("*.jpg"))
 if not shots:
     bad("κανένα screenshot — απαιτείται τουλάχιστον 1 στα 1280×800 ή 640×400")
 else:
@@ -129,7 +132,7 @@ except Exception as e:
     warn(f"δεν ελέγχθηκε η δημοσιευμένη έκδοση ({type(e).__name__})")
 
 # ── Πολιτική απορρήτου ──────────────────────────────────────────────
-if (R / "store/PRIVACY.html").exists(): ok("PRIVACY.html υπάρχει τοπικά")
+if (PROJECT_DIR / "store/PRIVACY.html").exists(): ok("PRIVACY.html υπάρχει τοπικά")
 else: bad("λείπει το PRIVACY.html")
 # Δεν αρκεί το τοπικό αρχείο: η Google ζητάει URL που ανοίγει χωρίς login.
 # Το ελέγχουμε αντί να το υπενθυμίζουμε κάθε φορά.
@@ -143,7 +146,7 @@ except Exception as e:
     warn(f"η πολιτική δεν ανοίγει δημόσια ({type(e).__name__}) — {PRIVACY_URL}")
 
 # ── Locales ─────────────────────────────────────────────────────────
-locs = list((E / "locales").glob("*.json"))
+locs = list((EXTENSION_DIR / "locales").glob("*.json"))
 ref = None
 for f in sorted(locs):
     d = json.loads(f.read_text(encoding="utf-8"))
@@ -164,19 +167,16 @@ print(f"\n  {len(fails)} μπλοκάρουν την υποβολή · {len(warn
 print()
 
 
-import json, pathlib, re, sys, zipfile
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-E = pathlib.Path(r"C:\Users\Panos\Desktop\JobHunt\extension")
-R = E.parent
-
+# ── Part 2: consistency across files (ids, translation keys, imports, zip) ──
+# Keeps its own tally and prints its own summary below.
 fails, warns = [], []
 def bad(m): fails.append(m)
 def warn(m): warns.append(m)
 
-html_files = {f.name: f.read_text(encoding="utf-8", errors="replace") for f in E.glob("*.html")}
-js_files = {str(f.relative_to(E)): f.read_text(encoding="utf-8", errors="replace")
-            for f in list(E.glob("*.js")) + list(E.glob("*/*.js"))}
-locales = {f.stem: json.loads(f.read_text(encoding="utf-8")) for f in (E / "locales").glob("*.json")}
+html_files = {f.name: f.read_text(encoding="utf-8", errors="replace") for f in EXTENSION_DIR.glob("*.html")}
+js_files = {str(f.relative_to(EXTENSION_DIR)): f.read_text(encoding="utf-8", errors="replace")
+            for f in list(EXTENSION_DIR.glob("*.js")) + list(EXTENSION_DIR.glob("*/*.js"))}
+locales = {f.stem: json.loads(f.read_text(encoding="utf-8")) for f in (EXTENSION_DIR / "locales").glob("*.json")}
 en = locales["en"]
 
 # ── 1. Κάθε $("#id") στο JS πρέπει να υπάρχει σε κάποιο HTML ─────────
@@ -241,14 +241,14 @@ n = 0
 for page, html in html_files.items():
     for ref in re.findall(r'(?:src|href)="(?!https?:|#|data:)([^"]+)"', html):
         n += 1
-        if not (E / ref).exists(): bad(f"{page} φορτώνει το {ref} που δεν υπάρχει")
+        if not (EXTENSION_DIR / ref).exists(): bad(f"{page} φορτώνει το {ref} που δεν υπάρχει")
 print(f"   {n} αναφορές ελέγχθηκαν\n")
 
 # ── 5. Κάθε import μεταξύ modules ────────────────────────────────────
 print("5 · Imports μεταξύ αρχείων")
 n = 0
 for rel, src in js_files.items():
-    base = (E / rel).parent
+    base = (EXTENSION_DIR / rel).parent
     for imp in re.findall(r'from\s+"(\./[^"]+)"', src):
         n += 1
         if not (base / imp).resolve().exists():
@@ -257,15 +257,15 @@ print(f"   {n} imports ελέγχθηκαν\n")
 
 # ── 6. Το zip περιέχει ό,τι χρειάζεται ───────────────────────────────
 print("6 · Πληρότητα του zip")
-zips = sorted((R / "store/dist").glob("*.zip"))
+zips = sorted((PROJECT_DIR / "store/dist").glob("*.zip"))
 if zips:
     with zipfile.ZipFile(zips[-1]) as a: names = set(a.namelist())
     # Το package.py εξαιρεί σκόπιμα κάποια αρχεία· διαβάζουμε τη λίστα του.
-    pkg = (R / "store/package.py").read_text(encoding="utf-8")
+    pkg = (PROJECT_DIR / "store/package.py").read_text(encoding="utf-8")
     skip = set(re.findall(r'"([^"]+)"', re.search(r"EXCLUDE_NAMES\s*=\s*\{([^}]*)\}", pkg).group(1)))
     pats = re.findall(r'"([^"]+)"', re.search(r"EXCLUDE_PATTERNS\s*=\s*\(([^)]*)\)", pkg).group(1))
-    need = {str(f.relative_to(E)).replace("\\", "/")
-            for f in E.rglob("*")
+    need = {str(f.relative_to(EXTENSION_DIR)).replace("\\", "/")
+            for f in EXTENSION_DIR.rglob("*")
             if f.is_file() and f.name not in skip and not any(p in f.name for p in pats)}
     absent = sorted(need - names)
     if absent: bad(f"λείπουν από το zip: {absent[:6]}")
@@ -274,7 +274,7 @@ else: bad("δεν υπάρχει zip")
 
 # ── 7. Content scripts: έγκυρα match patterns ────────────────────────
 print("7 · Content scripts")
-m = json.loads((E / "manifest.json").read_text(encoding="utf-8"))
+m = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
 for cs in m.get("content_scripts", []):
     for pat in cs.get("matches", []):
         if not re.match(r'^(\*|https?|file|ftp)://', pat):

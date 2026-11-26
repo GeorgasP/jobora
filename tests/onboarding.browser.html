@@ -1,0 +1,91 @@
+<!doctype html><meta charset="utf-8"><title>Onboarding regression check</title>
+<pre id="result">RUNNING</pre><iframe id="onboarding" style="width:900px;height:850px"></iframe>
+<script type="module">
+const result = document.querySelector("#result");
+window.testStorage = {};
+window.browserErrors = [];
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+try {
+  const base = new URL("../extension/", location.href).href;
+  const html = await (await fetch(base + "onboarding.html")).text();
+  const shim = `<base href="${base}"><script>
+    window.addEventListener('error', e => parent.browserErrors.push(e.message));
+    window.addEventListener('unhandledrejection', e => parent.browserErrors.push(String(e.reason)));
+    window.chrome = {
+      storage: { local: {
+        get: async key => ({ [key]: structuredClone(parent.testStorage[key]) }),
+        set: async patch => Object.assign(parent.testStorage, structuredClone(patch))
+      } },
+      i18n: { getUILanguage: () => 'en' },
+      runtime: { getURL: path => '${base}' + path, sendMessage: async () => ({ ok: true }) }
+    };
+  <` + `/script>`;
+  const frame = document.querySelector("#onboarding");
+  frame.srcdoc = html.replace("<head>", "<head>" + shim);
+  for (let n = 0; n < 100 && !frame.contentDocument?.querySelector("#file")?.onchange; n++) {
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  const doc = frame.contentDocument;
+  const upload = async (text, filename = "synthetic-cv.txt") => {
+    assert(doc.querySelector("#file").onchange, "onboarding module did not initialize");
+    const file = new frame.contentWindow.File([text], filename);
+    await doc.querySelector("#file").onchange({ target: { files: [file] } });
+  };
+  await upload("BARISTA TRAINING Starbucks\nDimitra Mousounaki");
+  assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "qualification was used as name");
+  const name = doc.querySelector("#cv-name");
+  name.style.transition = "none";
+  const computed = () => frame.contentWindow.getComputedStyle(name);
+  assert(computed().backgroundColor !== "rgb(255, 255, 255)", "name field has an unstyled white background");
+  assert(parseFloat(computed().minHeight) >= 44, "name field has no input sizing");
+  assert(parseFloat(computed().borderRadius) > 0, "name field has no rounded border");
+  const darkBackground = computed().backgroundColor;
+  doc.documentElement.dataset.theme = "light";
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert(computed().backgroundColor !== darkBackground, "name field does not follow the light theme");
+  doc.documentElement.dataset.theme = "dark";
+  frame.style.width = "375px";
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const fieldBounds = name.getBoundingClientRect(), panelBounds = doc.querySelector(".found").getBoundingClientRect();
+  assert(fieldBounds.left >= panelBounds.left && fieldBounds.right <= panelBounds.right, "name field overflows on mobile");
+  frame.style.width = "900px";
+  doc.querySelector("#cv-name").value = "  Dimitra Corrected  ";
+  await doc.querySelector("#next1").onclick();
+  assert(testStorage.profile.name === "Dimitra Corrected", "Continue did not persist the correction");
+  assert(doc.querySelector("#s2").classList.contains("on"), "Continue did not advance");
+  doc.querySelector("#back2").click();
+  assert(doc.querySelector("#cv-name").value.trim() === "Dimitra Corrected", "Back lost the correction");
+
+  await upload("BARISTA TRAINING Starbucks");
+  assert(doc.querySelector("#cv-name").value === "", "qualification-only document got a name");
+  doc.querySelector("#cv-name").value = "Χρήστης Δοκιμής";
+  doc.querySelector("#uiLanguage").value = "el";
+  await doc.querySelector("#uiLanguage").onchange();
+  assert(doc.querySelector("#cv-name").value === "Χρήστης Δοκιμής", "language switch lost typed name");
+  assert(doc.querySelector('label[for="cv-name"]').textContent === "Όνομα", "name label did not translate");
+  await doc.querySelector("#skip1").onclick();
+  assert(testStorage.profile.name === "Χρήστης Δοκιμής", "Skip did not persist typed name");
+  doc.querySelector("#back2").click();
+  doc.querySelector("#uiLanguage").value = "en";
+  await doc.querySelector("#uiLanguage").onchange();
+
+  // Exercise word spacing in the custom PDF scanner using a real TJ array.
+  const content = "BT /F1 24 Tf 1 0 0 1 40 750 Tm [(Dimitra) -300 (Mousounaki)] TJ ET\n" +
+    "BT /F1 12 Tf 1 0 0 1 40 700 Tm (dimitra.mousounaki@example.test) Tj ET";
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
+  let pdf = "%PDF-1.4\n", offsets = [];
+  objects.forEach((object, i) => { offsets.push(pdf.length); pdf += `${i + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += "xref\n0 6\n0000000000 65535 f \n" + offsets.map(n => `${String(n).padStart(10, "0")} 00000 n \n`).join("") +
+    `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  await upload(pdf, "synthetic-cv.pdf");
+  assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "browser PDF reader did not recover name");
+  assert(testStorage.profile.email === "dimitra.mousounaki@example.test", "browser PDF reader did not recover email");
+  assert(atob(testStorage.cv.base64) === pdf, "PDF parsing changed the uploaded CV");
+  assert(browserErrors.length === 0, browserErrors.join("; "));
+  result.textContent = "PASS: custom PDF scanner, extracted name and email, original attachment, dark/light styling, mobile fit, correction, Continue, Back, Greek translation, Skip, storage; no browser errors.";
+} catch (error) { result.textContent = "FAIL: " + error.stack + "\n" + browserErrors.join("; "); }
+</script>
