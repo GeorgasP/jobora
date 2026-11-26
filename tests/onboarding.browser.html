@@ -26,11 +26,38 @@ try {
     await new Promise(resolve => setTimeout(resolve, 30));
   }
   const doc = frame.contentDocument;
+  const assertStep = (number) => {
+    const current = doc.querySelectorAll('.progress [aria-current="step"]');
+    assert(doc.querySelector(".step.on").id === `s${number}`, "wrong visible step");
+    assert(doc.activeElement === doc.querySelector(`#s${number} h2`), "new step heading was not focused");
+    if (number <= 3) {
+      assert(current.length === 1 && current[0] === doc.querySelectorAll(".progress li")[number - 1], "progress does not identify the current step");
+    } else {
+      assert(current.length === 0, "setup still has a current step after starting the search");
+    }
+    assert(doc.querySelectorAll(".progress .complete").length === Math.min(number - 1, 3), "wrong number of completed steps");
+    assert(doc.querySelectorAll(".progress-status:not([hidden])").length === Math.min(number - 1, 3), "completed steps are not labelled for screen readers");
+  };
+  assert(doc.querySelector('.progress [aria-current="step"] .step-label').textContent === "Upload CV", "first step is not named and current on load");
   const upload = async (text, filename = "synthetic-cv.txt") => {
     assert(doc.querySelector("#file").onchange, "onboarding module did not initialize");
     const file = new frame.contentWindow.File([text], filename);
     await doc.querySelector("#file").onchange({ target: { files: [file] } });
   };
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "Skip without a CV did not advance");
+  assertStep(2);
+  doc.querySelector("#next2").click();
+  const titleInput = doc.querySelector('[data-tags="titles"] input');
+  assert(doc.activeElement === titleInput && doc.querySelector('.progress [aria-current="step"] .step-label').textContent === "Preferences", "missing job title changed the current step or lost field focus");
+  titleInput.value = "Data Analyst";
+  titleInput.dispatchEvent(new frame.contentWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  doc.querySelector("#next2").click();
+  assertStep(3);
+  doc.querySelector("#back3").click();
+  assertStep(2);
+  doc.querySelector("#back2").click();
+  assertStep(1);
   await upload("BARISTA TRAINING Starbucks\nDimitra Mousounaki");
   assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "qualification was used as name");
   const name = doc.querySelector("#cv-name");
@@ -53,7 +80,9 @@ try {
   await doc.querySelector("#next1").onclick();
   assert(testStorage.profile.name === "Dimitra Corrected", "Continue did not persist the correction");
   assert(doc.querySelector("#s2").classList.contains("on"), "Continue did not advance");
+  assertStep(2);
   doc.querySelector("#back2").click();
+  assertStep(1);
   assert(doc.querySelector("#cv-name").value.trim() === "Dimitra Corrected", "Back lost the correction");
 
   await upload("BARISTA TRAINING Starbucks");
@@ -63,11 +92,69 @@ try {
   await doc.querySelector("#uiLanguage").onchange();
   assert(doc.querySelector("#cv-name").value === "Χρήστης Δοκιμής", "language switch lost typed name");
   assert(doc.querySelector('label[for="cv-name"]').textContent === "Όνομα", "name label did not translate");
+  assert(doc.querySelector('[data-i18n="onboarding.progress.preferences"]').textContent === "Προτιμήσεις", "progress label did not translate");
   await doc.querySelector("#skip1").onclick();
   assert(testStorage.profile.name === "Χρήστης Δοκιμής", "Skip did not persist typed name");
   doc.querySelector("#back2").click();
   doc.querySelector("#uiLanguage").value = "en";
   await doc.querySelector("#uiLanguage").onchange();
+
+  await upload("Dimitra Mousounaki\ndimitra@example.test\nlinkedin.com/in/dimitra\ngithub.com/dimitra");
+  const email = doc.querySelector("#cv-email");
+  const linkedin = doc.querySelector("#cv-linkedin");
+  const github = doc.querySelector("#cv-github");
+  const savedProfile = JSON.stringify(testStorage.profile);
+  email.value = "invalid-email";
+  linkedin.value = "not a link";
+  github.value = "javascript:alert(1)";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.querySelector("#s1").classList.contains("on"), "invalid contact details advanced to the next step");
+  assert(doc.activeElement === email, "the first invalid contact field was not focused");
+  assert(JSON.stringify(testStorage.profile) === savedProfile, "invalid details changed the stored profile");
+  for (const input of [email, linkedin, github]) {
+    const error = doc.getElementById(input.getAttribute("aria-describedby"));
+    assert(input.getAttribute("aria-invalid") === "true" && !error.hidden && error.textContent, "missing inline error for " + input.id);
+  }
+  frame.style.width = "375px";
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const errorBounds = doc.querySelector("#cv-email-error").getBoundingClientRect();
+  const contactBounds = doc.querySelector(".found").getBoundingClientRect();
+  assert(errorBounds.left >= contactBounds.left && errorBounds.right <= contactBounds.right, "contact error overflows on mobile");
+  frame.style.width = "900px";
+  const englishError = doc.querySelector("#cv-email-error").textContent;
+  doc.querySelector("#uiLanguage").value = "el";
+  await doc.querySelector("#uiLanguage").onchange();
+  assert(doc.querySelector("#cv-email-error").textContent !== englishError, "visible contact error did not translate");
+  assert(email.value === "invalid-email", "language switch lost the invalid draft");
+  doc.querySelector("#uiLanguage").value = "en";
+  await doc.querySelector("#uiLanguage").onchange();
+  email.value = "  corrected@example.test  ";
+  email.dispatchEvent(new frame.contentWindow.Event("input", { bubbles: true }));
+  assert(doc.querySelector("#cv-email-error").hidden && !email.hasAttribute("aria-invalid"), "editing did not clear the email error");
+  linkedin.value = "linkedin.com/in/corrected";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.activeElement === github && doc.querySelector("#s1").classList.contains("on"), "invalid GitHub link was not focused");
+  assert(testStorage.profile.email === "dimitra@example.test", "partially corrected details were saved before all fields were valid");
+  github.value = "https://github.com/corrected";
+  doc.querySelector("#cv-phone").value = "+31 (0)6 1234 5678";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "valid contact details did not advance");
+  assert(testStorage.profile.email === "corrected@example.test", "corrected email was not trimmed and saved");
+  assert(testStorage.profile.linkedin === "https://linkedin.com/in/corrected", "bare LinkedIn link was not normalized and saved");
+  assert(testStorage.profile.github === "https://github.com/corrected", "corrected GitHub link was not saved");
+  assert(testStorage.profile.phone === "+31 (0)6 1234 5678", "international phone formatting was changed");
+  doc.querySelector("#back2").click();
+  github.value = "www.github.com/corrected";
+  email.value = "still-invalid";
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s1").classList.contains("on") && doc.activeElement === email, "Skip saved an invalid email");
+  email.value = "";
+  linkedin.value = "";
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "blank optional contact fields blocked Skip");
+  assert(testStorage.profile.email === "" && testStorage.profile.linkedin === "", "cleared optional fields were not saved");
+  assert(testStorage.profile.github === "https://www.github.com/corrected", "bare GitHub link was not normalized");
+  doc.querySelector("#back2").click();
 
   // Exercise word spacing in the custom PDF scanner using a real TJ array.
   const content = "BT /F1 24 Tf 1 0 0 1 40 750 Tm [(Dimitra) -300 (Mousounaki)] TJ ET\n" +
@@ -85,7 +172,27 @@ try {
   assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "browser PDF reader did not recover name");
   assert(testStorage.profile.email === "dimitra.mousounaki@example.test", "browser PDF reader did not recover email");
   assert(atob(testStorage.cv.base64) === pdf, "PDF parsing changed the uploaded CV");
+  frame.style.width = "320px";
+  for (const code of ["en", "el", "es", "de", "fr", "it", "pt", "pl"]) {
+    doc.querySelector("#uiLanguage").value = code;
+    await doc.querySelector("#uiLanguage").onchange();
+    const progressBounds = doc.querySelector(".progress").getBoundingClientRect();
+    for (const label of doc.querySelectorAll(".step-label")) {
+      const bounds = label.getBoundingClientRect();
+      assert(bounds.left >= progressBounds.left && bounds.right <= progressBounds.right, "progress label overflows on mobile in " + code);
+    }
+    assert(doc.documentElement.scrollWidth <= doc.documentElement.clientWidth, "page overflows on mobile in " + code);
+  }
+  doc.querySelector("#uiLanguage").value = "en";
+  await doc.querySelector("#uiLanguage").onchange();
+  await doc.querySelector("#next1").onclick();
+  assertStep(2);
+  doc.querySelector("#next2").click();
+  assertStep(3);
+  await doc.querySelector("#finish").onclick();
+  assertStep(4);
+  assert(doc.querySelector("#open-app").style.display === "inline-flex", "search completion did not show the matches action");
   assert(browserErrors.length === 0, browserErrors.join("; "));
-  result.textContent = "PASS: custom PDF scanner, extracted name and email, original attachment, dark/light styling, mobile fit, correction, Continue, Back, Greek translation, Skip, storage; no browser errors.";
+  result.textContent = "PASS: custom PDF scanner, original attachment, dark/light styling, mobile fit in all eight languages, named steps, progress state, heading focus, contact validation, inline errors, URL normalization, optional fields, correction, Continue, Back, Greek translation, Skip, storage, search completion; no browser errors.";
 } catch (error) { result.textContent = "FAIL: " + error.stack + "\n" + browserErrors.join("; "); }
 </script>

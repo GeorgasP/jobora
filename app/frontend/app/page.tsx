@@ -25,7 +25,7 @@ function Nav() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2 font-bold text-xl">
           <Sparkles className="w-5 h-5 text-primary" />
-          JobHunter
+          Jobora
         </Link>
         <nav className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground">Features</a>
@@ -281,7 +281,7 @@ function Footer() {
   return (
     <footer className="border-t py-12 mt-20">
       <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-        <p>© 2026 JobHunter. Built with AI, for humans.</p>
+        <p>© 2026 Jobora. Built with AI, for humans.</p>
       </div>
     </footer>
   );

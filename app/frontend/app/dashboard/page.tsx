@@ -23,7 +23,7 @@ export default async function Dashboard() {
     <div className="min-h-screen bg-secondary/30">
       <header className="border-b bg-background">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="font-bold text-xl">JobHunter</Link>
+          <Link href="/" className="font-bold text-xl">Jobora</Link>
           <nav className="flex items-center gap-6 text-sm">
             <Link href="/dashboard" className="font-medium">Dashboard</Link>
             <Link href="/jobs" className="text-muted-foreground hover:text-foreground">Jobs</Link>

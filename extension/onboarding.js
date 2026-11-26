@@ -32,8 +32,17 @@ await setupLanguage();
 
 function step(n) {
   $$(".step").forEach((s, i) => s.classList.toggle("on", i === n - 1));
-  $$(".bar i").forEach((b, i) => b.classList.toggle("on", i < Math.min(n, 3)));
-  scrollTo({ top: 0, behavior: "smooth" });
+  $$(".progress li").forEach((item, i) => {
+    const complete = i < n - 1;
+    item.classList.toggle("complete", complete);
+    item.classList.toggle("current", i === n - 1);
+    if (i === n - 1) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+    item.querySelector(".step-number").textContent = complete ? "✓" : String(i + 1);
+    item.querySelector(".progress-status").hidden = !complete;
+  });
+  $(`#s${n} h2`).focus({ preventScroll: true });
+  scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
 }
 
 /* ── Tag inputs με προτάσεις ──────────────────────────────── */
@@ -84,17 +93,26 @@ async function handleFile(file) {
     drop.innerHTML = `<div class="ic">✅</div><b>${esc(cv.filename)}</b><span>${esc(sub)}</span>`;
 
     const rows = [
-      [t("onboarding.found.email"), guess.email],
-      [t("onboarding.found.phone"), guess.phone], [t("onboarding.found.linkedin"), guess.linkedin],
-    ].filter(([, v]) => v);
+      ["email", "email", "email"],
+      ["phone", "tel", "tel"],
+      ["linkedin", "url", "url"],
+      ["github", "url", "url"],
+    ].filter(([key]) => key === "email" || key === "phone" || guess[key]);
 
-    $("#found").innerHTML = `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
+    $("#found").innerHTML = `<div class="found"><div data-i18n="onboarding.foundTitle" style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
            letter-spacing:.7px;font-weight:600;margin-bottom:8px">${esc(t("onboarding.foundTitle"))}</div>
+         <p class="found-help" data-i18n="onboarding.foundHelp">${esc(t("onboarding.foundHelp"))}</p>
          <div class="row"><label for="cv-name" data-i18n="onboarding.found.name">${esc(t("onboarding.found.name"))}</label>
            <input id="cv-name" class="txt" type="text" autocomplete="name" value="${esc(guess.name)}"
              data-i18n-ph="settings.name" placeholder="${esc(t("settings.name"))}"></div>
-         ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join("")}
-         ${!guess.name && !rows.length ? `<div class="row"><span>${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
+         ${rows.map(([key, type, autocomplete]) => `<div class="row">
+           <label for="cv-${key}" ${key === "github" ? "" : `data-i18n="onboarding.found.${key}"`}>${key === "github" ? "GitHub" : esc(t(`onboarding.found.${key}`))}</label>
+           <div class="contact-field">
+             <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"
+               ${type === "tel" ? "" : `aria-describedby="cv-${key}-error"`}>
+             ${type === "tel" ? "" : `<p id="cv-${key}-error" class="field-error" data-i18n="onboarding.invalid.${type}" hidden>${esc(t(`onboarding.invalid.${type}`))}</p>`}
+           </div></div>`).join("")}
+         ${!guess.name && !rows.some(([key]) => guess[key]) ? `<div class="row"><span data-i18n="onboarding.foundNothing">${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
       name: guess.name || "", email: guess.email || "", phone: guess.phone || "",
@@ -106,12 +124,37 @@ async function handleFile(file) {
   }
 }
 
-async function continueFromCV() {
-  const name = $("#cv-name");
-  if (name) {
-    guess.name = name.value.trim();
-    await store.saveProfile({ name: guess.name });
+function validateContactField(input) {
+  input.value = input.value.trim();
+  if (input.type === "url" && /^(?:(?:www|[a-z]{2,3})\.)?(?:linkedin\.com|github\.com)\//i.test(input.value)) {
+    input.value = `https://${input.value}`;
   }
+  const valid = input.validity.valid &&
+    (!input.value || input.type !== "url" || /^https?:\/\//i.test(input.value));
+  input.setAttribute("aria-invalid", String(!valid));
+  $(`#${input.id}-error`).hidden = valid;
+  return valid;
+}
+
+$("#found").addEventListener("input", ({ target }) => {
+  if (target.getAttribute("aria-invalid") !== "true") return;
+  target.removeAttribute("aria-invalid");
+  $(`#${target.id}-error`).hidden = true;
+});
+
+async function continueFromCV() {
+  const invalid = $$('#found input[type="email"], #found input[type="url"]')
+    .filter((input) => !validateContactField(input));
+  if (invalid.length) {
+    invalid[0].focus();
+    return;
+  }
+  const corrections = {};
+  for (const key of ["name", "email", "phone", "linkedin", "github"]) {
+    const input = $(`#cv-${key}`);
+    if (input) corrections[key] = guess[key] = input.value.trim();
+  }
+  if (Object.keys(corrections).length) await store.saveProfile(corrections);
   showSuggestions();
   step(2);
 }

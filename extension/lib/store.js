@@ -9,14 +9,19 @@
  *   state        { lastScan, lastCounts, seenIds }
  */
 
-// Ένα scan φέρνει ~2.000 αγγελίες. Αν το όριο είναι κάτω από αυτό, κάθε scan
-// πετάει και ξαναγράφει τις ίδιες θέσεις — και όλες μοιάζουν «νέες».
-export const MAX_JOBS = 5000;
+// Ένα scan φέρνει ~8.000 αγγελίες, οι μισές από τον ελληνικό πίνακα. Αν το
+// όριο είναι κάτω από αυτό, κάθε scan πετάει και ξαναγράφει τις ίδιες θέσεις
+// — και όλες μοιάζουν «νέες». Το unlimitedStorage είναι δηλωμένο γι' αυτό.
+export const MAX_JOBS = 12000;
 export const DESC_LIMIT = 2500;
 
 export const DEFAULT_PROFILE = {
   name: "", email: "", phone: "", location: "",
   linkedin: "", github: "", workAuthorization: "", noticePeriod: "Immediately available",
+
+  // Προφίλ: η φωτογραφία είναι data URL 256×256 (JPEG, ~15KB) — μένει εδώ
+  // όπως και τα υπόλοιπα, δηλαδή στον υπολογιστή του χρήστη και πουθενά αλλού.
+  photo: "", headline: "", about: "",
   language: "en",
   uiLanguage: "",
   titles: [],
@@ -32,7 +37,7 @@ export const DEFAULT_PROFILE = {
   maxAgeDays: 60,
   minScore: 55,
   boards: ["remotive", "arbeitnow", "remoteok", "jobicy", "himalayas", "workingnomads",
-           "themuse", "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "psf"],
+           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "psf", "skywalker", "ordino"],
   targets: [],
   autoScan: true,
   notify: true,
@@ -52,13 +57,15 @@ export const DEFAULT_PROFILE = {
 
 const get = async (keys) => chrome.storage.local.get(keys);
 const set = async (obj) => chrome.storage.local.set(obj);
+const validSalaryMin = (value) => Number.isSafeInteger(value) && value > 0 ? value : null;
 
 export async function getProfile() {
   const { profile } = await get("profile");
-  return { ...DEFAULT_PROFILE, ...(profile || {}) };
+  return { ...DEFAULT_PROFILE, ...(profile || {}), salaryMin: validSalaryMin(profile?.salaryMin) };
 }
 export async function saveProfile(patch) {
   const profile = { ...(await getProfile()), ...patch };
+  profile.salaryMin = validSalaryMin(profile.salaryMin);
   await set({ profile });
   return profile;
 }
@@ -72,6 +79,7 @@ export async function getCV() {
   return cv || null;
 }
 export const saveCV = (cv) => set({ cv });
+export const deleteCV = () => chrome.storage.local.remove("cv");
 
 export async function getJobs() {
   const { jobs } = await get("jobs");
@@ -93,6 +101,7 @@ export async function mergeJobs(incoming) {
       Object.assign(stored, {
         title: job.title, company: job.company, location: job.location,
         url: job.url, postedAt: job.postedAt || stored.postedAt, remote: job.remote,
+        country: job.country ?? stored.country ?? null,
         salaryMin: job.salaryMin, salaryMax: job.salaryMax,
         salaryCurrency: job.salaryCurrency, salaryPeriod: job.salaryPeriod,
         lastSeen: job.lastSeen,
@@ -138,7 +147,10 @@ export async function updateApp(id, patch, eventText) {
   const app = apps.find((a) => a.id === id);
   if (!app) return null;
   Object.assign(app, patch);
-  if (eventText) app.events.push({ at: new Date().toISOString(), text: eventText });
+  // Μια αίτηση χωρίς events έριχνε εξαίρεση εδώ, και η εξαίρεση σκότωνε και την
+  // αποθήκευση: η αλλαγή σταδίου χανόταν αθόρυβα. Το ιστορικό είναι σημείωση,
+  // δεν είναι λόγος να μη γραφτεί το ότι έστειλες την αίτηση.
+  if (eventText) (app.events ||= []).push({ at: new Date().toISOString(), text: eventText });
   await saveApps(apps);
   return app;
 }

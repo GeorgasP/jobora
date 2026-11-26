@@ -60,6 +60,18 @@ const REGION_ALIASES = {
   apac: ["apac", "asia", "asia-pacific", "asia pacific"],
   latam: ["latam", "latin america", "south america"],
   anz: ["anz", "australia", "new zealand"],
+  greece: ["greece", "ελλάδα", "ελλας", "ελλάς", "hellas", "athens", "αθήνα",
+           "athina", "thessaloniki", "θεσσαλονίκη", "thessalonik", "gr"],
+  ελλάδα: ["greece", "ελλάδα", "ελλας", "ελλάς", "hellas", "athens", "αθήνα",
+           "thessaloniki", "θεσσαλονίκη"],
+  αθήνα: ["αθήνα", "athina", "athens", "αττικ", "attik"],
+  θεσσαλονίκη: ["θεσσαλονίκη", "thessalonik", "salonica"],
+  germany: ["germany", "deutschland", "berlin", "münchen", "munich", "hamburg", "de"],
+  spain: ["spain", "españa", "madrid", "barcelona", "es"],
+  italy: ["italy", "italia", "rome", "roma", "milan", "milano", "it"],
+  france: ["france", "paris", "lyon", "fr"],
+  netherlands: ["netherlands", "nederland", "amsterdam", "rotterdam", "nl"],
+  poland: ["poland", "polska", "warsaw", "warszawa", "pl"],
 };
 
 const LANGUAGE_SIGNALS = {
@@ -116,7 +128,7 @@ function ageDays(postedAt) {
   return isNaN(t) ? null : (Date.now() - t) / 86400000;
 }
 
-function locationHits(location, wanted) {
+function locationHits(location, wanted, country = null, title = "") {
   const hits = [];
   for (const loc of wanted) {
     const low = loc.trim().toLowerCase();
@@ -126,7 +138,14 @@ function locationHits(location, wanted) {
       continue;
     }
     const variants = REGION_ALIASES[low] || [low];
-    if (variants.some((v) => location.includes(v))) hits.push(loc);
+    // Η χώρα της πηγής μετράει όσο και το κείμενο της αγγελίας: ένα αγγελτήριο
+    // για την Κερατέα δεν γράφει «Ελλάδα», αλλά στην Ελλάδα είναι. Και ο τίτλος
+    // μετράει: πολλοί ελληνικοί πίνακες γράφουν την περιοχή μέσα στον τίτλο και
+    // αφήνουν το πεδίο τοποθεσίας κενό.
+    if (variants.some((v) => location.includes(v) || title.includes(v)
+                             || (country && country.includes(v)))) {
+      hits.push(loc);
+    }
   }
   return hits;
 }
@@ -140,25 +159,30 @@ export function scoreJob(jobItem, p) {
 
   for (const kw of p.excludeKeywords || []) {
     if (phraseIn(kw, title) || phraseIn(kw, description.slice(0, 1500))) {
-      return { score: 0, rejected: `excluded keyword: ${kw}`, reasons };
+      return { score: 0, rejected: `excluded keyword: ${kw}`, kind: "keyword", reasons };
     }
   }
   if (p.remoteOnly && !(jobItem.remote || hay.includes("remote"))) {
-    return { score: 0, rejected: "not remote", reasons };
+    return { score: 0, rejected: "not remote", kind: "remote", reasons };
   }
 
-  const geo = locationHits(location, p.locations || []);
+  const geo = locationHits(location, p.locations || [],
+                           (jobItem.country || "").toLowerCase(), title);
   const globallyOpen = !location || GLOBAL_WORDS.some((w) => location.includes(w));
 
-  const blocked = (p.blockedLocations || []).find((b) => location.includes(b.toLowerCase()));
-  if (blocked && !geo.length) return { score: 0, rejected: `blocked location: ${blocked}`, reasons };
+  // Το ίδιο λεξιλόγιο με το πεδίο «πού μπορείς να δουλέψεις». Χωρίς αυτό,
+  // «Greece» δεν έκοβε τίποτα και «Ελλάδα» τα έκοβε όλα — δύο γραφές της ίδιας
+  // λέξης, δύο διαφορετικές συμπεριφορές, και καμία εξήγηση στον χρήστη.
+  const blocked = (p.blockedLocations || [])
+    .find((b) => locationHits(location, [b], (jobItem.country || "").toLowerCase(), title).length);
+  if (blocked && !geo.length) return { score: 0, rejected: `blocked location: ${blocked}`, kind: "blocked", reasons };
   if (p.strictLocation && (p.locations || []).length && !geo.length && !globallyOpen) {
-    return { score: 0, rejected: `outside your locations: ${jobItem.location}`, reasons };
+    return { score: 0, rejected: `outside your locations: ${jobItem.location}`, kind: "location", reasons };
   }
 
   const age = ageDays(jobItem.postedAt);
   if (age != null && p.maxAgeDays && age > p.maxAgeDays) {
-    return { score: 0, rejected: `posted ${Math.round(age)} days ago`, reasons };
+    return { score: 0, rejected: `posted ${Math.round(age)} days ago`, kind: "age", reasons };
   }
 
   let score = 0;
@@ -182,7 +206,10 @@ export function scoreJob(jobItem, p) {
     reasons.chips.push({ kind: "", text: [...new Set(geo)].slice(0, 2).join(" · ") });
   } else if (globallyOpen || !(p.locations || []).length) {
     score += W.location * 0.7;
-    reasons.chips.push({ kind: "", text: "Worldwide" });
+    // Το σήμα μπαίνει μόνο αν η ίδια η αγγελία λέει ότι δέχεται από παντού.
+    // Χωρίς φίλτρο τοποθεσίας παίρνει τους ίδιους βαθμούς — αλλά μια θέση στη
+    // Νέα Σμύρνη δεν γίνεται παγκόσμια επειδή εσύ δεν διάλεξες περιοχή.
+    if (globallyOpen) reasons.chips.push({ kind: "", text: "Worldwide" });
   }
 
   const industryHits = (p.industries || []).filter((i) => phraseIn(i, hay));
@@ -248,7 +275,7 @@ export function scoreJob(jobItem, p) {
     const why = years !== null
       ? `${level}-level · asks for ${years}+ years`
       : `${level}-level role`;
-    return { score: 0, rejected: why, reasons };
+    return { score: 0, rejected: why, kind: "level", reasons };
   }
   if (level === wants) {
     reasons.chips.push({ kind: "good", text: `${wants}-level` });
@@ -256,7 +283,7 @@ export function scoreJob(jobItem, p) {
   // Οι αγγελίες που δεν δηλώνουν επίπεδο πουθενά (level === null) περνάνε
   // χωρίς μπόνους: δεν έχουμε στοιχείο για να τις κρίνουμε προς καμία μεριά.
 
-  return { score: Math.max(0, Math.min(100, Math.round(score))), rejected: null, reasons };
+  return { score: Math.max(0, Math.min(100, Math.round(score))), rejected: null, kind: null, reasons };
 }
 
 /** Η ίδια θέση ανεβαίνει συχνά σε πολλά boards — κρατάμε μία φορά την καθεμία. */
@@ -264,19 +291,29 @@ export function scoreJob(jobItem, p) {
 // κατέληγε με το ίδιο κενό κλειδί και δώδεκα διαφορετικές θέσεις γίνονταν μία.
 const keyPart = (s) => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
-const dedupeKey = (j) =>
-  `${keyPart(j.company)}|${keyPart((j.title || "").replace(/\(.*?\)/g, ""))}`;
+const dedupeKey = (j) => {
+  // Χωρίς όνομα εταιρείας δεν υπάρχει τρόπος να ξέρουμε αν δύο «Σερβιτόρος»
+  // είναι η ίδια αγγελία — και μάλλον δεν είναι. Μένουν χωριστές.
+  const company = keyPart(j.company);
+  if (!company || company === "unknown") return j.id;
+  return `${company}|${keyPart((j.title || "").replace(/\(.*?\)/g, ""))}`;
+};
 
 /** Βαθμολογεί όλα τα jobs και επιστρέφει ταξινομημένα τα matches. */
-export function rankJobs(jobs, profile, { dismissed = [], appliedIds = [] } = {}) {
+/* Το tally είναι Map που γεμίζει ο καλών: «τι έκοψε τι». Ένα «0 σου ταιριάζουν»
+   χωρίς εξήγηση στέλνει τον κόσμο να ψάχνει το λάθος στην εφαρμογή, ενώ σχεδόν
+   πάντα φταίει ένα φίλτρο που ο ίδιος έβαλε και ξέχασε. */
+export function rankJobs(jobs, profile, { dismissed = [], appliedIds = [], tally = null } = {}) {
   const skip = new Set([...dismissed, ...appliedIds]);
+  const count = (k) => tally && tally.set(k, (tally.get(k) || 0) + 1);
   const out = [];
   for (const j of jobs) {
     if (skip.has(j.id)) continue;
-    const { score, rejected, reasons } = scoreJob(j, profile);
+    const { score, rejected, kind, reasons } = scoreJob(j, profile);
     // ?? και όχι ||: το μηδέν είναι έγκυρο κατώφλι («δείξε τα πάντα»),
     // αλλά είναι falsy — με το || γινόταν σιωπηλά 55.
-    if (rejected || score < (profile.minScore ?? 55)) continue;
+    if (rejected) { count(kind); continue; }
+    if (score < (profile.minScore ?? 55)) { count("score"); continue; }
     out.push({ ...j, score, chips: reasons.chips });
   }
 

@@ -7,7 +7,7 @@ Budget 20 minutes. Anything that fails, send me the exact error.
 ## Load it
 
 1. `chrome://extensions` → **Developer mode** on → **Load unpacked**
-2. Select `C:\Users\Panos\Desktop\JobHunt\extension`
+2. Select the `extension` folder inside your copy of the repository
 3. The extension card appears with the target icon and **no red "Errors" button**
 
 > A red *Errors* button means the service worker failed to start — usually an
@@ -34,7 +34,7 @@ Also try a **DOCX** and a **TXT** CV — three different formats, three parsers.
 - [ ] Clicking the icon shows the popup with matches / applications / jobs
 - [ ] "Scan now" in the popup finishes and the numbers change
 - [ ] `chrome://extensions` → **service worker** → Console shows no red errors
-- [ ] All **21 sources** succeed — no "Failed to fetch"
+- [ ] All **20 sources** succeed — no "Failed to fetch"
 
 > The last one matters. Himalayas and WorkingNomads failed in my page-based
 > test because of CORS. From the service worker with host permissions they
@@ -51,7 +51,7 @@ Also try a **DOCX** and a **TXT** CV — three different formats, three parsers.
 ## 4 · Apply + autofill — the important one
 
 - [ ] Press **Apply** on a match: the posting opens in a new tab
-- [ ] A **"🎯 Fill with JobHunter"** button appears bottom-right on that page
+- [ ] A **"🎯 Fill with Jobora"** button appears bottom-right on that page
 - [ ] Pressing it fills name, email, phone, location, LinkedIn, cover letter
 - [ ] **The CV appears attached in the file field**
 - [ ] The toast reports what was filled and what was left to you
@@ -71,14 +71,14 @@ have different form markup and this is where breakage is most likely.
 
 - [ ] Turn on "Search automatically twice a day" if it is off
 - [ ] `chrome://extensions` → service worker → Console:
-      `chrome.alarms.getAll(console.log)` shows the `jobhunter-daily` alarm
+      `chrome.alarms.getAll(console.log)` shows the `jobora-daily` alarm
 - [ ] Notifications are allowed for Chrome in Windows settings
 
 To test the alarm without waiting 12 hours, run this in the service worker
 console — it fires the scan in one minute:
 
 ```js
-chrome.alarms.create("jobhunter-daily", { delayInMinutes: 1 });
+chrome.alarms.create("jobora-daily", { delayInMinutes: 1 });
 ```
 
 - [ ] After a minute: a notification appears and the badge updates

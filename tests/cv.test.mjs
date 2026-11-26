@@ -56,11 +56,60 @@ test("similarly plausible people are left for the user to resolve", () => {
   assert.equal(guessFromCV("Alex Johnson\nSam Wilson").name, "");
 });
 
+test("the job title under a name does not hide the name", () => {
+  for (const [header, name] of [
+    ["Maria Papadopoulou\nSenior Data Analyst\nmaria@example.test", "Maria Papadopoulou"],
+    ["Maria Papadopoulou\nProject Coordinator\nmaria@example.test", "Maria Papadopoulou"],
+    ["Μαρία Παπαδοπούλου\nΑναλύτρια Δεδομένων\nmaria@example.test", "Μαρία Παπαδοπούλου"],
+    ["Lukas Meier\nBackend Developer\nlukas@example.test", "Lukas Meier"],
+    ["Lukas Meier\nZurich, Switzerland\nlukas@example.test", "Lukas Meier"],
+  ]) assert.equal(guessFromCV(header).name, name, header);
+});
+
+test("a surname that is also an occupation is not taken for a job title", () => {
+  assert.equal(guessFromCV("Paul Nurse\nResearch Scientist\npaul@example.test").name, "Paul Nurse");
+});
+
 test("job title suggestions still work independently of name extraction", () => {
   const found = guessFromCV("Dimitra Mousounaki\nBarista\nBarista\nRegistered Nurse");
   assert.equal(found.name, "Dimitra Mousounaki");
   assert.ok(found.titles.includes("Barista"));
   assert.ok(found.titles.includes("Registered Nurse"));
+});
+
+test("job titles match whole words only", () => {
+  const { titles } = guessFromCV(
+    "Jane Doe\nBuilt bots on MetaTrader and cTrader\nUsed Copilot every day\nHelped customers of brokers");
+  for (const title of ["Trader", "Pilot", "Broker"]) assert.ok(!titles.includes(title), title);
+});
+
+test("a title at the start of a line outranks a passing mention", () => {
+  const cv = [
+    "Jane Doe", "jane@example.test", "Athens, Greece", "Profile", "Calm under pressure",
+    "Experience",
+    "Customer Service Representative — Telecroft, 2024–2025",
+    "Explained billing to every Trader who called",
+  ].join("\n");
+  const { titles } = guessFromCV(cv);
+  assert.equal(titles[0], "Customer Service Representative");
+  assert.ok(titles.indexOf("Trader") > 0);
+});
+
+test("the headline under the name outranks a title repeated in sentences", () => {
+  const cv = [
+    "Jane Doe",
+    "Customer Service Representative",               // headline: 3 points
+    "jane@example.test", "Athens, Greece", "Profile",
+    "Explained billing to every Trader who called",  // inside a sentence: 1 point each
+    "Trained each new Trader on the phone system",
+  ].join("\n");
+  assert.deepEqual(guessFromCV(cv).titles, ["Customer Service Representative", "Trader"]);
+});
+
+test("the most specific title claims the words it is made of", () => {
+  const { titles } = guessFromCV("Jane Doe\nExperience\nPrimary School Teacher, 2019–2024");
+  assert.ok(titles.includes("Primary School Teacher"));
+  assert.ok(!titles.includes("Teacher"));
 });
 
 // Synthetic, self-contained PDFs: no private CVs or downloaded dependencies.
