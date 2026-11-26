@@ -88,17 +88,18 @@ async function handleFile(file) {
       ["phone", "tel", "tel"],
       ["linkedin", "url", "url"],
       ["github", "url", "url"],
-    ].filter(([key]) => guess[key]);
+    ].filter(([key]) => key === "email" || key === "phone" || guess[key]);
 
-    $("#found").innerHTML = `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
+    $("#found").innerHTML = `<div class="found"><div data-i18n="onboarding.foundTitle" style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
            letter-spacing:.7px;font-weight:600;margin-bottom:8px">${esc(t("onboarding.foundTitle"))}</div>
+         <p class="found-help" data-i18n="onboarding.foundHelp">${esc(t("onboarding.foundHelp"))}</p>
          <div class="row"><label for="cv-name" data-i18n="onboarding.found.name">${esc(t("onboarding.found.name"))}</label>
            <input id="cv-name" class="txt" type="text" autocomplete="name" value="${esc(guess.name)}"
              data-i18n-ph="settings.name" placeholder="${esc(t("settings.name"))}"></div>
          ${rows.map(([key, type, autocomplete]) => `<div class="row">
            <label for="cv-${key}" ${key === "github" ? "" : `data-i18n="onboarding.found.${key}"`}>${key === "github" ? "GitHub" : esc(t(`onboarding.found.${key}`))}</label>
            <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"></div>`).join("")}
-         ${!guess.name && !rows.length ? `<div class="row"><span>${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
+         ${!guess.name && !rows.some(([key]) => guess[key]) ? `<div class="row"><span data-i18n="onboarding.foundNothing">${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
       name: guess.name || "", email: guess.email || "", phone: guess.phone || "",
