@@ -108,10 +108,11 @@ content/prefill.js   the form filler
 content/button.js    the “Fill with Jobora” button on application pages
 ```
 
-CV parsing regression checks (Node.js 22 or newer, from the repository root):
+Regression tests for CV reading and job matching (Node.js 22 or newer, from
+the repository root):
 
 ```sh
-node --test tests/cv.test.mjs
+node --test "tests/*.test.mjs"
 ```
 
 GitHub runs the same command on every pull request and every push to `main`
