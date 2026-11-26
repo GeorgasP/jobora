@@ -45,7 +45,7 @@ Recruitee, Workday, Teamtailor, Breezy.
 Job boards: Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads,
 We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs.
 
-National sites: psf.org.gr, skywalker.gr, ordino.gr.
+National sites: psf.org.gr, skywalker.gr, jobfind.gr, xe.gr, ordino.gr.
 
 These are ordinary read requests for postings that anyone can see without
 logging in. **No personal data of yours is included.** Not your CV, not your

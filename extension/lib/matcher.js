@@ -233,10 +233,20 @@ export function scoreJob(jobItem, p) {
 
   let score = 0;
 
-  // Ο τίτλος μπορεί να είναι σε άλλη γλώσσα από αυτήν που έγραψε ο χρήστης:
-  // «Ζητείται φυσικοθεραπευτής» πρέπει να πιάνεται από το «Physiotherapist».
-  const matchesTitle = (wanted, hay) =>
-    phraseIn(wanted, hay) || aliasesFor(wanted).some((a) => hay.includes(a));
+  // A title may be in another language than the one the user typed:
+  // "Ζητείται φυσικοθεραπευτής" must match "Physiotherapist". Aliases are
+  // compared without accents, because some boards drop them ("λογιστησ").
+  // Each text is folded once, and only if a wanted title has aliases at all.
+  const foldedTexts = new Map();
+  const foldedOnce = (text) => {
+    if (!foldedTexts.has(text)) foldedTexts.set(text, fold(text));
+    return foldedTexts.get(text);
+  };
+  const matchesTitle = (wanted, hay) => {
+    if (phraseIn(wanted, hay)) return true;
+    const aliases = aliasesFor(wanted);
+    return aliases.length > 0 && aliases.some((alias) => foldedOnce(hay).includes(fold(alias)));
+  };
   // A shared ESCO occupation is the same job in any language: EURES ads are
   // written in their country's language ("Verpleegkundige", "Servicekraft").
   const sharesOccupation = (wanted) =>

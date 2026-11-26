@@ -37,7 +37,8 @@ export const DEFAULT_PROFILE = {
   maxAgeDays: 60,
   minScore: 55,
   boards: ["remotive", "arbeitnow", "remoteok", "jobicy", "himalayas", "workingnomads",
-           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "eures", "psf", "skywalker", "ordino"],
+           "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "eures",
+           "psf", "skywalker", "jobfind", "xe", "ordino"],
   // The ESCO occupations of each job title, looked up once per title by the
   // scan (see esco.js): { "Waiter": ["http://data.europa.eu/esco/occupation/…"] }.
   titleOccupations: {},

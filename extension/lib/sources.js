@@ -211,6 +211,31 @@ const euresCriteria = (occupationUris, countryCode, page) => ({
   minNumberPost: null, sessionId: "jobora",
 });
 
+/* ── xe.gr ─────────────────────────────────────────────────── */
+
+const UUID_AT_END = /^(.*)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const unslug = (s) => s.replace(/-+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+
+/**
+ * The title, area, category and id of an xe.gr job ad, read from its address:
+ * /εργασία/θέση-εργασίας/{category}/{title}[--{employer}]--{area}-{id}.
+ * Ads without "--" have title, employer and area run together; we keep them
+ * as the title, which still names the job and the area.
+ */
+function xeAd(url) {
+  const [, , category, last] = decodeURIComponent(new URL(url).pathname).split("/").filter(Boolean);
+  const found = UUID_AT_END.exec(last || "");
+  if (!category || !found) return null;
+  const [, slug, id] = found;
+  const parts = slug.split("--");
+  return {
+    id,
+    title: unslug(parts[0]),
+    area: parts.length > 1 ? unslug(parts.at(-1)) : "",
+    category: unslug(category),
+  };
+}
+
 /** One EURES vacancy as a job, in English when EURES has a translation. */
 function euresJob(vacancy) {
   const text = vacancy.translations?.en || vacancy;
@@ -658,6 +683,57 @@ export const BOARDS = {
             : "Οι λεπτομέρειες είναι για όλα τα μέλη του ordino — η εγγραφή ηθοποιού είναι δωρεάν.",
         }));
       }
+    }
+    return out;
+  },
+
+  /*
+   * jobfind.gr: one of the largest Greek job boards. It publishes an RSS feed
+   * of its newest ads for programs to read, and its robots.txt allows
+   * everything. Each scan sees the 100 newest; the store keeps them across scans.
+   */
+  async jobfind() {
+    const xml = await getText("https://www.jobfind.gr/rss/rssjobfind_recentads.ashx");
+    return rssItems(xml).map((item) => {
+      const url = tagValue(item, "link") || tagValue(item, "guid");
+      const region = tagValue(item, "region");   // "ΑΘΗΝΑ - ΑΤΤΙΚΗ"
+      // The title ends with the region ("Πωλήτρια - ΘΕΣΣΑΛΟΝΙΚΗ"); the card shows it apart.
+      const fullTitle = tagValue(item, "title");
+      const regionSuffix = ` - ${region}`;
+      const title = region && fullTitle.endsWith(regionSuffix) ? fullTitle.slice(0, -regionSuffix.length) : fullTitle;
+      return job("jobfind", url.split("/").pop() || url, "", title, url, {
+        location: region || "Ελλάδα",
+        country: "greece",
+        description: stripHtml(decodeEntities(tagValue(item, "description"))),
+        postedAt: iso(tagValue(item, "pubDate")),
+      });
+    }).filter((j) => j.url && j.title);
+  },
+
+  /*
+   * xe.gr: Greece's largest classifieds site, with thousands of job ads in
+   * every trade: sales staff, drivers, warehouse workers, cleaners, waiters,
+   * nurses. Its robots.txt allows its job sitemap and its ad pages to
+   * everyone. We read only the sitemap, take the title and area from each
+   * ad's address (see xeAd), and send the user to xe.gr's own page.
+   */
+  async xe(query, opts = {}) {
+    const xml = await getText("https://www.xe.gr/sitemap/jobs/listings");
+    const cutoff = Date.now() - (opts.maxAgeDays || 60) * 86400000;
+    const out = [];
+    for (const entry of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+      const url = /<loc>([^<]+)<\/loc>/.exec(entry[1])?.[1];
+      const modified = Date.parse(/<lastmod>([^<]+)<\/lastmod>/.exec(entry[1])?.[1] || "");
+      if (!url || !modified || modified < cutoff) continue;
+      const ad = xeAd(url);
+      if (!ad) continue;
+      out.push(job("xe", ad.id, "", ad.title, url, {
+        location: ad.area || "Ελλάδα",
+        country: "greece",
+        // The category ("Σερβιτόροι", "Οδηγοί οχημάτων") names the job when the title doesn't.
+        description: ad.category,
+        postedAt: new Date(modified).toISOString(),
+      }));
     }
     return out;
   },

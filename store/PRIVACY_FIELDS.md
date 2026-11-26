@@ -48,12 +48,12 @@ Injects the form-filling script into a job application page when the user clicks
 When the user clicks "Fill the current page" in the extension's popup, the form filler needs access to the tab the user is looking at, at that moment, on that click. activeTab grants exactly that and nothing wider: no access to other tabs, no access before the click, and no access after the tab is closed.
 ```
 
-## Host permission justification  (974/1000)
+## Host permission justification  (993/1000)
 
 ```
 The extension fetches public job listings and must reach the sites that publish them.
 
-Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for public postings. No user data is sent.
+Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, jobfind.gr, xe.gr, ordino.gr): read-only requests for public postings. No user data is sent.
 
 europa.eu, ec.europa.eu: EURES, the EU job portal, searched by the occupation codes (from ESCO) of the user's job titles and the countries they chose. No CV or contact details are sent.
 
