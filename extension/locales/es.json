@@ -192,6 +192,8 @@
   "onboarding.invalid.email": "Introduce una dirección de correo válida, como name@example.com, o deja el campo vacío.",
   "onboarding.invalid.url": "Introduce una dirección web válida que empiece por https:// o http://, o deja el campo vacío.",
   "onboarding.continue": "Continuar",
+  "onboarding.nextPreferences": "Siguiente: Preferencias",
+  "onboarding.nextIndustries": "Siguiente: Sectores",
   "onboarding.skip": "Omitir por ahora",
   "onboarding.back": "Atrás",
   "onboarding.step2.title": "¿Qué estás buscando?",

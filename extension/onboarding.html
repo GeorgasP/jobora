@@ -50,8 +50,12 @@
   .found .contact-field input{width:100%}
   .found .field-error{color:var(--bad);font-size:12px;line-height:1.5;margin:5px 0 0;overflow-wrap:anywhere}
   .found .row .txt[aria-invalid="true"]{border-color:var(--bad)}
-  .nav-btns{display:flex;gap:10px;margin-top:26px}
-  .skip{color:var(--fg-3);font-size:13px;align-self:center;margin-left:auto;cursor:pointer}
+  .nav-btns{display:flex;align-items:center;gap:10px;margin-top:26px}
+  .nav-btns .btn{min-height:44px;max-width:100%;white-space:normal}
+  .nav-btns .primary{margin-left:auto}
+  .nav-btns .btn svg{flex-shrink:0}
+  .skip-row{display:flex;justify-content:center;margin-top:8px}
+  .skip{color:var(--fg-3);font-size:13px;min-height:44px;padding:8px 12px}
   .skip:hover{color:var(--fg)}
   .sug{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
   .sug button{font-size:12.5px;padding:6px 12px;border-radius:8px;border:1px dashed var(--line-2);color:var(--fg-2)}
@@ -74,8 +78,8 @@
     .drop { padding: 28px 16px; }
     .drop .ic { font-size: 30px; }
     .nav-btns { flex-wrap: wrap; gap: 8px; }
-    .nav-btns .btn { flex: 1; justify-content: center; padding: 11px 14px; }
-    .skip { width: 100%; text-align: center; margin: 4px 0 0; }
+    .nav-btns .btn { min-width: 0; justify-content: center; padding: 11px 14px; }
+    .nav-btns .primary { flex: 1; }
     .found .row { flex-direction: column; gap: 2px; }
     .found .row b { text-align: left; }
     .found .row label { align-self: flex-start; }
@@ -126,8 +130,13 @@
     <div id="found"></div>
 
     <div class="nav-btns">
-      <button class="btn primary" id="next1" disabled data-i18n="onboarding.continue">Continue</button>
-      <span class="skip" id="skip1" data-i18n="onboarding.skip">Skip for now</span>
+      <button type="button" class="btn primary" id="next1" disabled>
+        <span data-i18n="onboarding.nextPreferences">Next: Preferences</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div class="skip-row">
+      <button type="button" class="skip" id="skip1" data-i18n="onboarding.skip">Skip for now</button>
     </div>
   </section>
 
@@ -157,7 +166,10 @@
 
     <div class="nav-btns">
       <button class="btn" id="back2" data-i18n="onboarding.back">Back</button>
-      <button class="btn primary" id="next2" data-i18n="onboarding.continue">Continue</button>
+      <button type="button" class="btn primary" id="next2">
+        <span data-i18n="onboarding.nextIndustries">Next: Industries</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+      </button>
     </div>
   </section>
 
@@ -170,7 +182,10 @@
 
     <div class="nav-btns">
       <button class="btn" id="back3" data-i18n="onboarding.back">Back</button>
-      <button class="btn primary" id="finish" data-i18n="onboarding.start">Start searching</button>
+      <button type="button" class="btn primary" id="finish">
+        <span data-i18n="onboarding.start">Start searching</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M5 12h14m-7-7 7 7-7 7"/></svg>
+      </button>
     </div>
   </section>
 

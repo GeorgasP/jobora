@@ -192,6 +192,8 @@
   "onboarding.invalid.email": "Συμπλήρωσε μια έγκυρη διεύθυνση email, όπως name@example.com, ή άφησε το πεδίο κενό.",
   "onboarding.invalid.url": "Συμπλήρωσε μια έγκυρη διεύθυνση που αρχίζει με https:// ή http://, ή άφησε το πεδίο κενό.",
   "onboarding.continue": "Συνέχεια",
+  "onboarding.nextPreferences": "Επόμενο: Προτιμήσεις",
+  "onboarding.nextIndustries": "Επόμενο: Κλάδοι",
   "onboarding.skip": "Παράλειψη προς το παρόν",
   "onboarding.back": "Πίσω",
   "onboarding.step2.title": "Τι ψάχνεις;",
