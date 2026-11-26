@@ -67,6 +67,22 @@ test("a labelled phone number is found among other numbers", () => {
     "+30 694 123 4567");
 });
 
+test("the applicant's address and country are read from the CV header", () => {
+  const found = guessFromCV(
+    "Panos G\nCustomer Success & Support · Account Management\nSpata, Attica, Greece | panos@x.test | github.com/x");
+  assert.equal(found.location, "Spata, Attica, Greece");
+  assert.equal(found.country, "Greece");
+  assert.equal(guessFromCV("Μαρία Παπαδοπούλου\nΣπάτα Αττικής\nmaria@x.test").country, "Greece");
+  assert.equal(guessFromCV("Lukas Meier\nlukas@x.test · Zürich").country, "Switzerland");
+});
+
+test("a city further down the CV is not taken for the applicant's address", () => {
+  const cv = ["Jane Doe", "jane@x.test", "Profile", ...Array(12).fill("Calm under pressure"),
+    "Barista, Starbucks London, 2019-2021"].join("\n");
+  assert.equal(guessFromCV(cv).location, "");
+  assert.equal(guessFromCV("Jane Doe\nEU citizen · Available immediately").country, "");
+});
+
 test("years, dates and ID numbers are not taken for a phone number", () => {
   for (const text of [
     "Maria P\nWaitress, 2019-2024\nBarista 2018 2019",

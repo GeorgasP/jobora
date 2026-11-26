@@ -85,7 +85,9 @@ async function handleFile(file) {
 
     const rows = [
       [t("onboarding.found.email"), guess.email],
-      [t("onboarding.found.phone"), guess.phone], [t("onboarding.found.linkedin"), guess.linkedin],
+      [t("onboarding.found.phone"), guess.phone],
+      [t("onboarding.found.location"), guess.location],
+      [t("onboarding.found.linkedin"), guess.linkedin],
     ].filter(([, v]) => v);
 
     $("#found").innerHTML = `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
@@ -98,8 +100,15 @@ async function handleFile(file) {
 
     await store.saveProfile({
       name: guess.name || "", email: guess.email || "", phone: guess.phone || "",
-      linkedin: guess.linkedin || "", github: guess.github || "",
+      location: guess.location || "", linkedin: guess.linkedin || "", github: guess.github || "",
     });
+    // Where the user lives decides which remote jobs are open to them, so the
+    // locations start from their country instead of "Remote" alone, unless
+    // they have already chosen something else.
+    const locations = tagValues("locations");
+    if (guess.country && locations.length === 1 && locations[0] === "Remote") {
+      fields.locations.values = [guess.country, "Remote"];
+    }
     $("#next1").disabled = false;
   } catch (err) {
     drop.innerHTML = `<div class="ic">⚠️</div><b>${esc(t("onboarding.readFail"))}</b><span>${esc(err.message)}</span>`;

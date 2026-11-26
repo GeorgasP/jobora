@@ -70,6 +70,9 @@ let profile = null, matches = [], apps = [], state = null, filter = "all";
 let vocab = { titles: [], locations: [] };
 const fields = {};
 
+// Profile fields a CV can fill in. All but github have an input with the same id in Settings.
+const CV_CONTACT_FIELDS = ["name", "email", "phone", "location", "linkedin", "github"];
+
 const STAGES = [
   { key: "prepared", color: "var(--fg-3)" },
   { key: "sent", color: "var(--accent)" },
@@ -121,13 +124,16 @@ async function load({ forms = true } = {}) {
   const allJobs = await store.getJobs();
   vocab = buildVocabulary(allJobs, { industries: profile.industries });
 
-  if (!profile.name || !profile.email) {
+  // Fill contact details the profile is missing from the stored CV. This also
+  // gives existing users a home location, which decides which remote jobs
+  // are open to them.
+  if (CV_CONTACT_FIELDS.some((field) => !profile[field])) {
     const cv = await store.getCV();
     if (cv?.text) {
       const found = guessFromCV(cv.text);
       const patch = {};
-      for (const k of ["name", "email", "phone", "linkedin", "github"]) {
-        if (!profile[k] && found[k]) patch[k] = found[k];
+      for (const field of CV_CONTACT_FIELDS) {
+        if (!profile[field] && found[field]) patch[field] = found[field];
       }
       if (Object.keys(patch).length) profile = await store.saveProfile(patch);
     }
@@ -451,8 +457,30 @@ $("#photo-clear").onclick = async () => {
 
 $("#cv-pick").onclick = () => $("#cv-file").click();
 
-/* Το βιογραφικό φεύγει, τα στοιχεία που συμπλήρωσε μένουν: το όνομα και το
-   τηλέφωνό σου δεν παύουν να ισχύουν επειδή άλλαξες αρχείο. */
+/**
+ * Offers the job titles found in a newly uploaded CV, one click each. A new
+ * CV often means new work to look for, but the titles stay the user's
+ * choice, so nothing is replaced without a click.
+ */
+function offerTitlesFromCV(titles = []) {
+  const box = $("#titles-sug");
+  const fresh = titles.filter((title) => !tagValues("titles").includes(title));
+  box.innerHTML = fresh.length
+    ? `<span>${esc(t("onboarding.fromCV"))}</span>` +
+      fresh.map((title) => `<button data-t="${esc(title)}">+ ${esc(title)}</button>`).join("")
+    : "";
+  box.querySelectorAll("button").forEach((button) => {
+    button.onclick = () => {
+      fields.titles.values = [...tagValues("titles"), button.dataset.t];
+      button.remove();
+      if (!box.querySelector("button")) box.innerHTML = "";
+      scheduleSave();
+    };
+  });
+}
+
+/* Removing the CV keeps the details it filled in: your name and phone don't
+   stop being yours because you changed the file. */
 $("#cv-clear").onclick = async () => {
   await store.deleteCV();
   $("#cv-file").value = "";
@@ -467,8 +495,8 @@ $("#cv-file").onchange = async (e) => {
     await store.saveCV(cv);
     const guess = guessFromCV(cv.text);
     const patch = {};
-    for (const k of ["name", "email", "phone", "linkedin", "github"]) {
-      if (guess[k] && !$("#" + k)?.value) patch[k] = guess[k];
+    for (const field of CV_CONTACT_FIELDS) {
+      if (guess[field] && !$("#" + field)?.value) patch[field] = guess[field];
     }
     if (Object.keys(patch).length) {
       profile = await store.saveProfile(patch);
@@ -477,6 +505,7 @@ $("#cv-file").onchange = async (e) => {
       toast(t(cv.text ? "toast.cvSaved" : "toast.cvSavedNoText"), cv.text ? "ok" : "");
     }
     await load();
+    offerTitlesFromCV(guess.titles);
   } catch (err) {
     toast(t("toast.cvFailed", { error: err.message }), "bad");
   }

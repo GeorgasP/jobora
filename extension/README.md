@@ -118,10 +118,16 @@ node --test "tests/*.test.mjs"
 GitHub runs the same command on every pull request and every push to `main`
 (`.github/workflows/tests.yml`), and shows the result on the pull request.
 
-For the browser upload, name editing and styling checks, serve the repository
-locally with `python -m http.server 8765 --bind 127.0.0.1`, then open
-`http://127.0.0.1:8765/tests/onboarding.browser.html`. The page reports PASS or
-FAIL and uses synthetic CVs and simulated extension storage.
+For the checks that need a real browser, serve the repository locally with
+`python -m http.server 8765 --bind 127.0.0.1`, then open:
+
+- `http://127.0.0.1:8765/tests/onboarding.browser.html`: CV upload, name
+  editing, styling, and the address and country read from the CV.
+- `http://127.0.0.1:8765/tests/settings.browser.html`: what a new CV does in
+  Settings (fills an empty location, offers its job titles).
+
+Each page reports PASS or FAIL and uses synthetic CVs and simulated extension
+storage.
 
 There is also a Python version in `../jobora/` for power users: same engine,
 plus SMTP email applications and IMAP tracking of company replies — things a

@@ -1,4 +1,5 @@
 import { ALL_PROFESSIONS } from "./professions.js";
+import { countryLabel, placesIn } from "./places.js";
 
 /*
  * CV upload + parsing, χωρίς καμία εξωτερική βιβλιοθήκη.
@@ -601,13 +602,39 @@ function findPhone(text) {
   return best ? balanceBrackets(best.value) : "";
 }
 
+// Contact details sit in the first lines of a CV; a city further down is
+// usually where a past job was, not where the applicant lives.
+const ADDRESS_HEADER_LINES = 12;
+const ADDRESS_MAX_LENGTH = 60;
+
+/**
+ * Where the applicant lives, as the CV writes it ("Spata, Attica, Greece"),
+ * and the English name of that country ("Greece"). The country decides which
+ * remote jobs are open to the applicant.
+ */
+function findHomeLocation(text) {
+  for (const line of text.split(/\r\n?|\n/).slice(0, ADDRESS_HEADER_LINES)) {
+    for (const part of line.split(/[|·•]/)) {
+      const segment = part.trim().replace(/[,;]+$/, "");
+      // Skip e-mail addresses, links and phone numbers sharing the line.
+      if (!segment || segment.length > ADDRESS_MAX_LENGTH || /@|https?:|www\.|\d{6,}/.test(segment)) continue;
+      const [country] = placesIn(segment).countries;
+      if (country) return { location: segment, country: countryLabel(country) };
+    }
+  }
+  return { location: "", country: "" };
+}
+
 /** Guesses contact details, the applicant's name and likely job titles from the CV text. */
 export function guessFromCV(text) {
-  const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
+  const out = {
+    name: "", email: "", phone: "", location: "", country: "", linkedin: "", github: "", titles: [],
+  };
   if (!text) return out;
 
   out.email = (text.match(EMAIL_RE) || [""])[0];
   out.phone = findPhone(text);
+  Object.assign(out, findHomeLocation(text));
   out.linkedin = (text.match(LINKEDIN_RE) || [""])[0];
   out.github = (text.match(GITHUB_RE) || [""])[0];
 

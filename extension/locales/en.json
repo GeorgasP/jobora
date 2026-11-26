@@ -183,6 +183,7 @@
   "onboarding.found.name": "Name",
   "onboarding.found.email": "Email",
   "onboarding.found.phone": "Phone",
+  "onboarding.found.location": "Location",
   "onboarding.found.linkedin": "LinkedIn",
   "onboarding.continue": "Continue",
   "onboarding.skip": "Skip for now",
