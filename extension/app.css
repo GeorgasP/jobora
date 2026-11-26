@@ -1499,6 +1499,25 @@ html[data-theme="light"] .tagbox .t {
 }
 
 /* =========================================================
+   OFFER — a one-time suggestion above the matches
+   ========================================================= */
+
+.offer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+.offer[hidden] { display: none; }
+.offer > div { flex: 1 1 260px; min-width: 0; }
+.offer b { display: block; font-weight: 600; }
+.offer span { color: var(--fg-3); font-size: 13px; }
+
+/* =========================================================
    TITLES FROM A NEW CV — one-click suggestions under the field
    ========================================================= */
 

@@ -4,6 +4,7 @@ import { ALL_INDUSTRIES, pickCompanies } from "./lib/companies.js";
 import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES } from "./lib/i18n.js";
+import { PORTAL_ORIGINS } from "./lib/portals.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -161,6 +162,9 @@ $$("#industries .pick").forEach((p) => p.onclick = () => {
 $("#back3").onclick = () => step(2);
 
 $("#finish").onclick = async () => {
+  // First, while the click still counts as the user's: Chrome only shows its
+  // permission question during one. Saying no just leaves the portals out.
+  await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
   const industries = $$("#industries .pick.on").map((p) => p.dataset.i);
   await store.saveProfile({
     titles: tagValues("titles"),

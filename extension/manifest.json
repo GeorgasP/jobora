@@ -32,14 +32,10 @@
     "https://*.teamtailor.com/*",
     "https://*.breezy.hr/*",
     "https://api.adzuna.com/*",
-    "https://europa.eu/*",
-    "https://ec.europa.eu/*",
     "https://devitjobs.uk/*",
     "https://jobs.smartrecruiters.com/*",
     "https://www.psf.org.gr/*",
     "https://www.skywalker.gr/*",
-    "https://www.jobfind.gr/*",
-    "https://www.xe.gr/*",
     "https://www.ordino.gr/*",
     "https://open.er-api.com/*",
     "https://api.anthropic.com/*"
@@ -83,6 +79,10 @@
     "128": "icons/128.png"
   },
   "optional_host_permissions": [
+    "https://europa.eu/*",
+    "https://ec.europa.eu/*",
+    "https://www.jobfind.gr/*",
+    "https://www.xe.gr/*",
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",
     "*://*.reddit.com/*",

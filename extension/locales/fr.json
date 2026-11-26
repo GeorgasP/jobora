@@ -247,5 +247,17 @@
   "profile.contact.title": "Coordonnées",
   "profile.contact.hint": "remplissent les formulaires de candidature",
   "settings.languages.title": "Langues",
-  "settings.languages.hint": "interface et lettres de motivation"
+  "settings.languages.hint": "interface et lettres de motivation",
+  "settings.portals.title": "Des offres dans tous les secteurs",
+  "settings.portals.hint": "recommandé",
+  "settings.portals": "Portails publics d'emploi",
+  "settings.portals.help": "EURES, le portail de l'emploi de l'UE, et les sites grecs jobfind.gr et xe.gr : infirmiers, serveurs, chauffeurs, pas seulement le logiciel. Chrome vous demandera d'autoriser ces sites.",
+  "settings.portals.on": "Portails d'emploi activés. Ils sont inclus dès la prochaine recherche.",
+  "settings.portals.off": "Portails d'emploi désactivés.",
+  "settings.portals.denied": "Chrome n'a pas autorisé ces sites, les portails d'emploi restent désactivés.",
+  "offer.portals": "Trouvez des offres dans tous les secteurs",
+  "offer.portals.help": "Activez EURES et les sites d'emploi grecs : infirmiers, serveurs, chauffeurs, pas seulement le logiciel.",
+  "offer.portals.on": "Activer",
+  "offer.portals.later": "Plus tard",
+  "onboarding.portals.note": "Chrome vous demandera d'autoriser Jobora à lire EURES et deux sites d'emploi grecs. Autorisez-le pour trouver des offres dans tous les secteurs."
 }

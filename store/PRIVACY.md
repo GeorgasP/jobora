@@ -45,7 +45,8 @@ Recruitee, Workday, Teamtailor, Breezy.
 Job boards: Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads,
 We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs.
 
-National sites: psf.org.gr, skywalker.gr, jobfind.gr, xe.gr, ordino.gr.
+National sites: psf.org.gr, skywalker.gr, ordino.gr, and, only after you allow
+them in the app, jobfind.gr and xe.gr.
 
 These are ordinary read requests for postings that anyone can see without
 logging in. **No personal data of yours is included.** Not your CV, not your
@@ -58,7 +59,8 @@ those credentials and the country codes you chose to search, because that is
 how their API identifies the caller. Your CV, name and contact details are
 still not sent. Without a key, no request is made to Adzuna at all.
 
-A second exception: **EURES and ESCO**, both run by the European Commission.
+A second exception, only after you allow it in the app: **EURES and ESCO**,
+both run by the European Commission.
 EURES is the EU's job portal, where the public employment services of Europe
 publish their vacancies in every industry. To search it, the extension sends
 each job title you look for to ESCO (`ec.europa.eu`) once, to learn its

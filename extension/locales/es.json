@@ -247,5 +247,17 @@
   "profile.contact.title": "Datos de contacto",
   "profile.contact.hint": "rellenan los formularios de candidatura",
   "settings.languages.title": "Idiomas",
-  "settings.languages.hint": "interfaz y cartas de presentación"
+  "settings.languages.hint": "interfaz y cartas de presentación",
+  "settings.portals.title": "Empleos en todos los sectores",
+  "settings.portals.hint": "recomendado",
+  "settings.portals": "Portales públicos de empleo",
+  "settings.portals.help": "EURES, el portal de empleo de la UE, y las bolsas griegas jobfind.gr y xe.gr: enfermeros, camareros, conductores, no solo software. Chrome te pedirá que permitas estos sitios.",
+  "settings.portals.on": "Portales de empleo activados. Se incluyen desde la próxima búsqueda.",
+  "settings.portals.off": "Portales de empleo desactivados.",
+  "settings.portals.denied": "Chrome no permitió los sitios, así que los portales de empleo siguen desactivados.",
+  "offer.portals": "Encuentra empleo en todos los sectores",
+  "offer.portals.help": "Activa EURES y las bolsas de empleo griegas: enfermeros, camareros, conductores, no solo software.",
+  "offer.portals.on": "Activar",
+  "offer.portals.later": "Ahora no",
+  "onboarding.portals.note": "Chrome te pedirá permiso para que Jobora lea EURES y dos bolsas de empleo griegas. Permítelo para encontrar empleo en todos los sectores."
 }

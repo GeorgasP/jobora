@@ -6,6 +6,7 @@ import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES, currentLanguage } from "./lib/i18n.js";
+import { PORTAL_ORIGINS, portalsAllowed } from "./lib/portals.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -773,6 +774,46 @@ async function setupSocialToggle() {
   };
 }
 
+/* ── Job portals that need the user's permission ─────────────
+   EURES and the Greek boards ask for their sites here instead of in the
+   manifest (see lib/portals.js), so an update never turns the extension off. */
+const PORTALS_OFFER_DISMISSED = "portalsOfferDismissed";
+
+/** Shows whether the portals are on, and offers them above the matches until used or dismissed. */
+async function refreshPortals() {
+  const allowed = await portalsAllowed().catch(() => false);
+  $("#tog-portals")?.classList.toggle("on", allowed);
+  const { [PORTALS_OFFER_DISMISSED]: dismissed } = await chrome.storage.local.get(PORTALS_OFFER_DISMISSED);
+  const offer = $("#portals-offer");
+  if (offer) offer.hidden = allowed || Boolean(dismissed);
+}
+
+/** Asks Chrome for the portals' sites. Chrome only asks during a click, so call it from one. */
+async function turnPortalsOn() {
+  const granted = await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
+  toast(t(granted ? "settings.portals.on" : "settings.portals.denied"), granted ? "ok" : "warn");
+  await refreshPortals();
+}
+
+function setupPortals() {
+  const toggle = $("#tog-portals");
+  if (toggle) {
+    toggle.onclick = async (e) => {
+      e.stopPropagation();
+      if (!toggle.classList.contains("on")) return turnPortalsOn();
+      await chrome.permissions.remove({ origins: PORTAL_ORIGINS }).catch(() => {});
+      toast(t("settings.portals.off"), "ok");
+      await refreshPortals();
+    };
+  }
+  $("#portals-on")?.addEventListener("click", turnPortalsOn);
+  $("#portals-later")?.addEventListener("click", async () => {
+    await chrome.storage.local.set({ [PORTALS_OFFER_DISMISSED]: true });
+    $("#portals-offer").hidden = true;
+  });
+  refreshPortals();
+}
+
 /* ── Γλώσσα διεπαφής ──────────────────────────────────────── */
 function fillLanguageSelect(active) {
   const select = $("#uiLanguage");
@@ -792,6 +833,7 @@ store.getProfile().then(async (p) => {
   if (!p.uiLanguage) await store.saveProfile({ uiLanguage: active });
   fillLanguageSelect(active);
   setupSocialToggle();
+  setupPortals();
   watchSettings();
   if (!(await store.isOnboarded())) location.href = "onboarding.html";
   else {

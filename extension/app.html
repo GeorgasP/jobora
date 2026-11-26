@@ -64,6 +64,12 @@
 <div class="wrap">
 
   <section class="view on" id="v-matches">
+    <div class="offer" id="portals-offer" hidden>
+      <div><b data-i18n="offer.portals">Find jobs in every industry</b>
+        <span data-i18n="offer.portals.help">Turn on EURES and the Greek job boards: nurses, waiters, drivers, not only software.</span></div>
+      <button class="btn primary" id="portals-on" data-i18n="offer.portals.on">Turn on</button>
+      <button class="btn" id="portals-later" data-i18n="offer.portals.later">Not now</button>
+    </div>
     <div class="stats" id="stats"></div>
     <div class="toolbar">
       <button class="chip-filter on" data-f="all" data-i18n="filter.all">All</button>
@@ -242,6 +248,16 @@
               <option value="fr">Français</option><option value="it">Italiano</option>
               <option value="pt">Português</option>
             </select></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><b data-i18n="settings.portals.title">Jobs in every industry</b><span data-i18n="settings.portals.hint">recommended</span></div>
+      <div class="sec-b">
+        <div>
+          <div class="switch"><div><b data-i18n="settings.portals">Public job portals</b><span data-i18n="settings.portals.help">EURES, the EU's job portal, and the Greek boards jobfind.gr and xe.gr: nurses, waiters, drivers, not only software. Chrome asks you to allow these sites.</span></div>
+            <div class="tog" id="tog-portals"></div></div>
         </div>
       </div>
     </div>

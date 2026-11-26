@@ -247,5 +247,17 @@
   "profile.contact.title": "Dane kontaktowe",
   "profile.contact.hint": "wypełniają formularze aplikacyjne",
   "settings.languages.title": "Języki",
-  "settings.languages.hint": "interfejs i listy motywacyjne"
+  "settings.languages.hint": "interfejs i listy motywacyjne",
+  "settings.portals.title": "Oferty w każdej branży",
+  "settings.portals.hint": "zalecane",
+  "settings.portals": "Publiczne portale pracy",
+  "settings.portals.help": "EURES, portal pracy UE, oraz greckie serwisy jobfind.gr i xe.gr: pielęgniarki, kelnerzy, kierowcy, nie tylko IT. Chrome poprosi o zezwolenie na te witryny.",
+  "settings.portals.on": "Portale pracy włączone. Będą uwzględnione od następnego wyszukiwania.",
+  "settings.portals.off": "Portale pracy wyłączone.",
+  "settings.portals.denied": "Chrome nie zezwolił na te witryny, więc portale pracy pozostają wyłączone.",
+  "offer.portals": "Znajdź oferty w każdej branży",
+  "offer.portals.help": "Włącz EURES i greckie serwisy z ofertami: pielęgniarki, kelnerzy, kierowcy, nie tylko IT.",
+  "offer.portals.on": "Włącz",
+  "offer.portals.later": "Nie teraz",
+  "onboarding.portals.note": "Chrome poprosi o zgodę, aby Jobora mogła czytać EURES i dwa greckie serwisy z ofertami pracy. Zezwól, aby znajdować oferty w każdej branży."
 }

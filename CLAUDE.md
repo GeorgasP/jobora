@@ -10,4 +10,7 @@
   `node --test "tests/*.test.mjs"` (GitHub runs the same on every pull request).
 - Start each change on its own branch from an up-to-date `main`, and merge it
   through a pull request.
+- Before every push: `git fetch --all`, look at what Apo has pushed since (on
+  `main` and on his branches) and which files it touches, merge it into your
+  branch, and run all the tests again. Never push over work you haven't seen.
 - The Python engine in `jobora/` uses the standard library only.

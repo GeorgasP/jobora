@@ -247,5 +247,17 @@
   "profile.contact.title": "Kontaktdaten",
   "profile.contact.hint": "füllen die Bewerbungsformulare aus",
   "settings.languages.title": "Sprachen",
-  "settings.languages.hint": "Oberfläche und Anschreiben"
+  "settings.languages.hint": "Oberfläche und Anschreiben",
+  "settings.portals.title": "Stellen in jeder Branche",
+  "settings.portals.hint": "empfohlen",
+  "settings.portals": "Öffentliche Jobportale",
+  "settings.portals.help": "EURES, das Jobportal der EU, und die griechischen Jobbörsen jobfind.gr und xe.gr: Pflegekräfte, Servicekräfte, Fahrer, nicht nur Software. Chrome bittet dich, diese Websites zu erlauben.",
+  "settings.portals.on": "Jobportale aktiviert. Sie sind ab der nächsten Suche dabei.",
+  "settings.portals.off": "Jobportale deaktiviert.",
+  "settings.portals.denied": "Chrome hat die Websites nicht erlaubt, daher bleiben die Jobportale aus.",
+  "offer.portals": "Finde Stellen in jeder Branche",
+  "offer.portals.help": "Aktiviere EURES und die griechischen Jobbörsen: Pflegekräfte, Servicekräfte, Fahrer, nicht nur Software.",
+  "offer.portals.on": "Aktivieren",
+  "offer.portals.later": "Nicht jetzt",
+  "onboarding.portals.note": "Chrome fragt, ob Jobora EURES und zwei griechische Jobbörsen lesen darf. Erlaube es, um Stellen in jeder Branche zu finden."
 }

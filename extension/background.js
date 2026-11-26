@@ -9,6 +9,7 @@ import * as store from "./lib/store.js";
 import { fetchAll, getJSON } from "./lib/sources.js";
 import { lookUpOccupations } from "./lib/esco.js";
 import { euresSearchFor } from "./lib/scanplan.js";
+import { boardsWithPermission } from "./lib/portals.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
 import { pickCompanies } from "./lib/companies.js";
@@ -142,11 +143,15 @@ async function runScan({ silent = false } = {}) {
 
   try {
     await migrated;
-    const profile = await withTitleOccupations(await store.getProfile());
+    const stored = await store.getProfile();
+    // Portals whose sites the user hasn't allowed are left out (see lib/portals.js).
+    const boards = await boardsWithPermission(stored.boards);
+    // ESCO is only needed for EURES, and lives on a site EURES's permission covers.
+    const profile = boards.includes("eures") ? await withTitleOccupations(stored) : stored;
     const targets = profile.targets?.length ? profile.targets : pickCompanies(profile.industries);
     const sources = [];
 
-    const jobs = await fetchAll(targets, profile.boards, "", (label, count, error) => {
+    const jobs = await fetchAll(targets, boards, "", (label, count, error) => {
       sources.push({ label, count, error });
     }, {
       maxAgeDays: profile.maxAgeDays,
