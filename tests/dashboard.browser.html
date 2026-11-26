@@ -54,10 +54,12 @@ try {
     assert(controls.length === 2, "header or empty-state scan action is missing");
     for (const button of controls) {
       assert(button.disabled === busy, "scan action has the wrong loading state");
+      assert((button.getAttribute("aria-busy") === "true") === busy, "scan action has the wrong busy state");
       assert(button.textContent.trim() === strings[key], "scan action lost its translation");
       assert(button.querySelector("[data-i18n]").dataset.i18n === key, "scan action lost its translation binding");
     }
     assert(scan.querySelector("svg") === icon, "scan replaced its icon");
+    assert(frame.contentWindow.getComputedStyle(icon).animationName === (busy ? "spin" : "none"), "scan icon animates outside its loading state");
   };
   const locales = {};
   for (const code of ["en", "el", "es", "de", "fr", "it", "pt", "pl"]) {

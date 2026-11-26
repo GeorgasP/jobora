@@ -2541,7 +2541,7 @@ html[data-theme="light"] .cvbox:hover {
 
 /* Όσο τρέχει η αναζήτηση, το εικονίδιο γυρίζει. */
 .btn.busy svg,
-.btn[disabled] svg {
+.btn[aria-busy="true"] svg {
   animation: spin 0.9s linear infinite;
 }
 
