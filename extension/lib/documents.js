@@ -93,6 +93,9 @@ function wordXmlText(xml) {
     .replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "")
     .replace(/<w:(?:br|cr)\b[^>]*\/>/g, "\n")
     .replace(/<w:tab\b[^>]*\/>/g, " ")
+    // A table row stays one line ("Nationality Greek"): a cell's last
+    // paragraph ends with a space, the row with a line break.
+    .replace(/<\/w:p>(\s*<\/w:tc>)/g, " $1")
     .replace(/<\/w:(?:p|tr)>/g, "\n")
     .replace(/<\/w:tc>/g, " ")
     .replace(/<[^>]+>/g, ""));
@@ -117,8 +120,11 @@ function odfXmlText(xml) {
     .replace(/<text:line-break\s*\/>/g, "\n")
     .replace(/<text:tab\s*\/>/g, " ")
     .replace(/<text:s(?:\s+text:c="(\d+)")?\s*\/>/g, (_, n) => " ".repeat(Number(n || 1)))
+    // A table row stays one line, as in DOCX.
+    .replace(/<\/text:p>(\s*<\/table:table-cell>)/g, " $1")
     .replace(/<\/text:(?:p|h)>/g, "\n")
     .replace(/<\/table:table-cell>/g, " ")
+    .replace(/<\/table:table-row>/g, "\n")
     .replace(/<[^>]+>/g, ""));
 }
 
@@ -143,10 +149,14 @@ export async function zipDocumentText(bytes) {
 /* ── RTF ───────────────────────────────────────────────────── */
 
 // Groups that hold settings or pictures, not text. Headers and footers are
-// not among them: they are where templates put contact details.
+// not among them: they are where templates put contact details. A shape's
+// properties ("sp") are skipped but its text box ("shptxt") is read; the
+// shape's fallback copy ("shprslt") would only repeat that text.
 const RTF_SKIPPED = new Set(["fonttbl", "colortbl", "stylesheet", "info", "pict", "object", "themedata",
   "colorschememapping", "datastore", "latentstyles", "listtable", "listoverridetable", "rsidtbl",
-  "generator", "xmlnstbl", "mmathPr", "revtbl", "pgdsctbl", "fldinst", "shpinst", "nonshppict"]);
+  "generator", "xmlnstbl", "mmathPr", "revtbl", "pgdsctbl", "fldinst", "nonshppict", "sp", "shprslt"]);
+// "{\*\name …}" groups are skipped unless the reader knows them; these hold text.
+const RTF_KEPT_DESTINATIONS = new Set(["shpinst"]);
 const RTF_BREAKS = { par: "\n", line: "\n", row: "\n", sect: "\n", page: "\n", tab: " ", cell: " " };
 
 /** Plain text of an RTF document, decoding \'hh bytes in the document's code page and \uN characters. */
@@ -164,7 +174,7 @@ export function rtfText(source) {
   const emit = (text) => { flushBytes(); out += text; };
 
   const stack = [];
-  let group = { skip: false, uc: 1 };
+  let group = { skip: false, ignorable: false, uc: 1 };
   let skipFallback = 0;     // characters to drop after a \uN
   const controlWord = /\\([a-z]+)(-?\d+)? ?|\\'([0-9a-f]{2})|\\([^a-z])|([{}])|([^\\{}\r\n]+)|[\r\n]+/giy;
 
@@ -183,6 +193,10 @@ export function rtfText(source) {
       continue;
     }
     if (word) {
+      if (group.ignorable) {
+        group.ignorable = false;
+        if (!RTF_KEPT_DESTINATIONS.has(word)) { group.skip = true; continue; }
+      }
       if (RTF_SKIPPED.has(word)) { group.skip = true; continue; }
       if (word === "uc") { group.uc = Number(param || 1); continue; }
       if (word === "u") {
@@ -195,7 +209,7 @@ export function rtfText(source) {
       if (RTF_BREAKS[word]) emit(RTF_BREAKS[word]);
       continue;
     }
-    if (symbol === "*") { group.skip = true; continue; }     // {\* …} destinations we don't know
+    if (symbol === "*") { group.ignorable = true; continue; }   // "{\*\name": decided by the name that follows
     if (symbol === "~") { emit(" "); continue; }
     if (symbol === "_") { emit("-"); continue; }
     if (symbol && "\\{}".includes(symbol)) { emit(symbol); continue; }
