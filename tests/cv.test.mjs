@@ -95,6 +95,17 @@ test("a title at the start of a line outranks a passing mention", () => {
   assert.ok(titles.indexOf("Trader") > 0);
 });
 
+test("the headline under the name outranks a title repeated in sentences", () => {
+  const cv = [
+    "Jane Doe",
+    "Customer Service Representative",               // headline: 3 points
+    "jane@example.test", "Athens, Greece", "Profile",
+    "Explained billing to every Trader who called",  // inside a sentence: 1 point each
+    "Trained each new Trader on the phone system",
+  ].join("\n");
+  assert.deepEqual(guessFromCV(cv).titles, ["Customer Service Representative", "Trader"]);
+});
+
 test("the most specific title claims the words it is made of", () => {
   const { titles } = guessFromCV("Jane Doe\nExperience\nPrimary School Teacher, 2019–2024");
   assert.ok(titles.includes("Primary School Teacher"));
