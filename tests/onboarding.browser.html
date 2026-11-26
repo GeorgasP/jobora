@@ -26,6 +26,8 @@ try {
     await new Promise(resolve => setTimeout(resolve, 30));
   }
   const doc = frame.contentDocument;
+  assert(doc.querySelector("#next1").disabled, "Next should be disabled before a CV is uploaded");
+  assert(frame.contentWindow.getComputedStyle(doc.querySelector("#next1 svg")).animationName === "none", "disabled Next arrow incorrectly shows a loading animation");
   const assertStep = (number) => {
     const current = doc.querySelectorAll('.progress [aria-current="step"]');
     assert(doc.querySelector(".step.on").id === `s${number}`, "wrong visible step");

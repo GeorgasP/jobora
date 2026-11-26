@@ -239,7 +239,7 @@ function renderCards() {
     $("#cards").innerHTML = `<div class="empty"><div class="e">🔍</div>
       <b>${esc(t(matches.length ? "cards.empty.noFilter" : "cards.empty.noMatches"))}</b>
       <p>${esc(t(matches.length ? "cards.empty.tryFilter" : "cards.empty.hint"))}</p>
-      ${matches.length ? "" : `<button class="btn primary" data-scan ${scanning ? "disabled" : ""}><span data-i18n="${scanKey}">${esc(t(scanKey))}</span></button>`}
+      ${matches.length ? "" : `<button class="btn primary" data-scan aria-busy="${scanning}" ${scanning ? "disabled" : ""}><span data-i18n="${scanKey}">${esc(t(scanKey))}</span></button>`}
     </div>`;
     return;
   }
@@ -622,6 +622,7 @@ function setScanning(scanning) {
   const key = scanning ? "header.scanning" : "header.scan";
   $$("[data-scan]").forEach((btn) => {
     btn.disabled = scanning;
+    btn.setAttribute("aria-busy", String(scanning));
     const label = btn.querySelector("[data-i18n]");
     label.dataset.i18n = key;
     label.textContent = t(key);
