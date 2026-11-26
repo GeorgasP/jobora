@@ -32,8 +32,17 @@ await setupLanguage();
 
 function step(n) {
   $$(".step").forEach((s, i) => s.classList.toggle("on", i === n - 1));
-  $$(".bar i").forEach((b, i) => b.classList.toggle("on", i < Math.min(n, 3)));
-  scrollTo({ top: 0, behavior: "smooth" });
+  $$(".progress li").forEach((item, i) => {
+    const complete = i < n - 1;
+    item.classList.toggle("complete", complete);
+    item.classList.toggle("current", i === n - 1);
+    if (i === n - 1) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+    item.querySelector(".step-number").textContent = complete ? "✓" : String(i + 1);
+    item.querySelector(".progress-status").hidden = !complete;
+  });
+  $(`#s${n} h2`).focus({ preventScroll: true });
+  scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
 }
 
 /* ── Tag inputs με προτάσεις ──────────────────────────────── */
