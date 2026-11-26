@@ -37,6 +37,10 @@
   .found .row b{font-weight:600;text-align:right;word-break:break-word}
   .found .row label{color:var(--fg-3);align-self:center}
   .found .row input{width:65%;min-width:0;font-size:13.5px}
+  .found .contact-field{width:65%;min-width:0}
+  .found .contact-field input{width:100%}
+  .found .field-error{color:var(--bad);font-size:12px;line-height:1.5;margin:5px 0 0;overflow-wrap:anywhere}
+  .found .row .txt[aria-invalid="true"]{border-color:var(--bad)}
   .nav-btns{display:flex;gap:10px;margin-top:26px}
   .skip{color:var(--fg-3);font-size:13px;align-self:center;margin-left:auto;cursor:pointer}
   .skip:hover{color:var(--fg)}
@@ -66,6 +70,7 @@
     .found .row b { text-align: left; }
     .found .row label { align-self: flex-start; }
     .found .row input { width: 100%; }
+    .found .contact-field { width: 100%; }
   }
 </style>
 </head>

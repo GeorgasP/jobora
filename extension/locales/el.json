@@ -185,6 +185,8 @@
   "onboarding.found.email": "Email",
   "onboarding.found.phone": "Τηλέφωνο",
   "onboarding.found.linkedin": "LinkedIn",
+  "onboarding.invalid.email": "Συμπλήρωσε μια έγκυρη διεύθυνση email, όπως name@example.com, ή άφησε το πεδίο κενό.",
+  "onboarding.invalid.url": "Συμπλήρωσε μια έγκυρη διεύθυνση που αρχίζει με https:// ή http://, ή άφησε το πεδίο κενό.",
   "onboarding.continue": "Συνέχεια",
   "onboarding.skip": "Παράλειψη προς το παρόν",
   "onboarding.back": "Πίσω",

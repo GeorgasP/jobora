@@ -31,6 +31,9 @@ try {
     const file = new frame.contentWindow.File([text], filename);
     await doc.querySelector("#file").onchange({ target: { files: [file] } });
   };
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "Skip without a CV did not advance");
+  doc.querySelector("#back2").click();
   await upload("BARISTA TRAINING Starbucks\nDimitra Mousounaki");
   assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "qualification was used as name");
   const name = doc.querySelector("#cv-name");
@@ -69,6 +72,63 @@ try {
   doc.querySelector("#uiLanguage").value = "en";
   await doc.querySelector("#uiLanguage").onchange();
 
+  await upload("Dimitra Mousounaki\ndimitra@example.test\nlinkedin.com/in/dimitra\ngithub.com/dimitra");
+  const email = doc.querySelector("#cv-email");
+  const linkedin = doc.querySelector("#cv-linkedin");
+  const github = doc.querySelector("#cv-github");
+  const savedProfile = JSON.stringify(testStorage.profile);
+  email.value = "invalid-email";
+  linkedin.value = "not a link";
+  github.value = "javascript:alert(1)";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.querySelector("#s1").classList.contains("on"), "invalid contact details advanced to the next step");
+  assert(doc.activeElement === email, "the first invalid contact field was not focused");
+  assert(JSON.stringify(testStorage.profile) === savedProfile, "invalid details changed the stored profile");
+  for (const input of [email, linkedin, github]) {
+    const error = doc.getElementById(input.getAttribute("aria-describedby"));
+    assert(input.getAttribute("aria-invalid") === "true" && !error.hidden && error.textContent, "missing inline error for " + input.id);
+  }
+  frame.style.width = "375px";
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const errorBounds = doc.querySelector("#cv-email-error").getBoundingClientRect();
+  const contactBounds = doc.querySelector(".found").getBoundingClientRect();
+  assert(errorBounds.left >= contactBounds.left && errorBounds.right <= contactBounds.right, "contact error overflows on mobile");
+  frame.style.width = "900px";
+  const englishError = doc.querySelector("#cv-email-error").textContent;
+  doc.querySelector("#uiLanguage").value = "el";
+  await doc.querySelector("#uiLanguage").onchange();
+  assert(doc.querySelector("#cv-email-error").textContent !== englishError, "visible contact error did not translate");
+  assert(email.value === "invalid-email", "language switch lost the invalid draft");
+  doc.querySelector("#uiLanguage").value = "en";
+  await doc.querySelector("#uiLanguage").onchange();
+  email.value = "  corrected@example.test  ";
+  email.dispatchEvent(new frame.contentWindow.Event("input", { bubbles: true }));
+  assert(doc.querySelector("#cv-email-error").hidden && !email.hasAttribute("aria-invalid"), "editing did not clear the email error");
+  linkedin.value = "linkedin.com/in/corrected";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.activeElement === github && doc.querySelector("#s1").classList.contains("on"), "invalid GitHub link was not focused");
+  assert(testStorage.profile.email === "dimitra@example.test", "partially corrected details were saved before all fields were valid");
+  github.value = "https://github.com/corrected";
+  doc.querySelector("#cv-phone").value = "+31 (0)6 1234 5678";
+  await doc.querySelector("#next1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "valid contact details did not advance");
+  assert(testStorage.profile.email === "corrected@example.test", "corrected email was not trimmed and saved");
+  assert(testStorage.profile.linkedin === "https://linkedin.com/in/corrected", "bare LinkedIn link was not normalized and saved");
+  assert(testStorage.profile.github === "https://github.com/corrected", "corrected GitHub link was not saved");
+  assert(testStorage.profile.phone === "+31 (0)6 1234 5678", "international phone formatting was changed");
+  doc.querySelector("#back2").click();
+  github.value = "www.github.com/corrected";
+  email.value = "still-invalid";
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s1").classList.contains("on") && doc.activeElement === email, "Skip saved an invalid email");
+  email.value = "";
+  linkedin.value = "";
+  await doc.querySelector("#skip1").onclick();
+  assert(doc.querySelector("#s2").classList.contains("on"), "blank optional contact fields blocked Skip");
+  assert(testStorage.profile.email === "" && testStorage.profile.linkedin === "", "cleared optional fields were not saved");
+  assert(testStorage.profile.github === "https://www.github.com/corrected", "bare GitHub link was not normalized");
+  doc.querySelector("#back2").click();
+
   // Exercise word spacing in the custom PDF scanner using a real TJ array.
   const content = "BT /F1 24 Tf 1 0 0 1 40 750 Tm [(Dimitra) -300 (Mousounaki)] TJ ET\n" +
     "BT /F1 12 Tf 1 0 0 1 40 700 Tm (dimitra.mousounaki@example.test) Tj ET";
@@ -86,6 +146,6 @@ try {
   assert(testStorage.profile.email === "dimitra.mousounaki@example.test", "browser PDF reader did not recover email");
   assert(atob(testStorage.cv.base64) === pdf, "PDF parsing changed the uploaded CV");
   assert(browserErrors.length === 0, browserErrors.join("; "));
-  result.textContent = "PASS: custom PDF scanner, extracted name and email, original attachment, dark/light styling, mobile fit, correction, Continue, Back, Greek translation, Skip, storage; no browser errors.";
+  result.textContent = "PASS: custom PDF scanner, original attachment, dark/light styling, mobile fit, contact validation, inline errors, focus, URL normalization, optional fields, correction, Continue, Back, Greek translation, Skip, storage; no browser errors.";
 } catch (error) { result.textContent = "FAIL: " + error.stack + "\n" + browserErrors.join("; "); }
 </script>

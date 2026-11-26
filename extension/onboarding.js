@@ -98,7 +98,11 @@ async function handleFile(file) {
              data-i18n-ph="settings.name" placeholder="${esc(t("settings.name"))}"></div>
          ${rows.map(([key, type, autocomplete]) => `<div class="row">
            <label for="cv-${key}" ${key === "github" ? "" : `data-i18n="onboarding.found.${key}"`}>${key === "github" ? "GitHub" : esc(t(`onboarding.found.${key}`))}</label>
-           <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"></div>`).join("")}
+           <div class="contact-field">
+             <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"
+               ${type === "tel" ? "" : `aria-describedby="cv-${key}-error"`}>
+             ${type === "tel" ? "" : `<p id="cv-${key}-error" class="field-error" data-i18n="onboarding.invalid.${type}" hidden>${esc(t(`onboarding.invalid.${type}`))}</p>`}
+           </div></div>`).join("")}
          ${!guess.name && !rows.some(([key]) => guess[key]) ? `<div class="row"><span data-i18n="onboarding.foundNothing">${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
@@ -111,7 +115,31 @@ async function handleFile(file) {
   }
 }
 
+function validateContactField(input) {
+  input.value = input.value.trim();
+  if (input.type === "url" && /^(?:(?:www|[a-z]{2,3})\.)?(?:linkedin\.com|github\.com)\//i.test(input.value)) {
+    input.value = `https://${input.value}`;
+  }
+  const valid = input.validity.valid &&
+    (!input.value || input.type !== "url" || /^https?:\/\//i.test(input.value));
+  input.setAttribute("aria-invalid", String(!valid));
+  $(`#${input.id}-error`).hidden = valid;
+  return valid;
+}
+
+$("#found").addEventListener("input", ({ target }) => {
+  if (target.getAttribute("aria-invalid") !== "true") return;
+  target.removeAttribute("aria-invalid");
+  $(`#${target.id}-error`).hidden = true;
+});
+
 async function continueFromCV() {
+  const invalid = $$('#found input[type="email"], #found input[type="url"]')
+    .filter((input) => !validateContactField(input));
+  if (invalid.length) {
+    invalid[0].focus();
+    return;
+  }
   const corrections = {};
   for (const key of ["name", "email", "phone", "linkedin", "github"]) {
     const input = $(`#cv-${key}`);

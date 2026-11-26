@@ -185,6 +185,8 @@
   "onboarding.found.email": "E-mail",
   "onboarding.found.phone": "Telefon",
   "onboarding.found.linkedin": "LinkedIn",
+  "onboarding.invalid.email": "Wpisz prawidłowy adres e-mail, np. name@example.com, lub pozostaw to pole puste.",
+  "onboarding.invalid.url": "Wpisz prawidłowy adres strony zaczynający się od https:// lub http:// albo pozostaw to pole puste.",
   "onboarding.continue": "Dalej",
   "onboarding.skip": "Pomiń na razie",
   "onboarding.back": "Wstecz",
