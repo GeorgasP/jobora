@@ -20,6 +20,8 @@ Budget 20 minutes. Anything that fails, send me the exact error.
 - [ ] A tab opened automatically on the setup screen
 - [ ] Dropping a **PDF** CV shows "✅ filename · N characters read"
 - [ ] Name / email / phone / LinkedIn appear under "Read from your CV"
+- [ ] A qualification such as "BARISTA TRAINING Starbucks" is never used as the name
+- [ ] Editing the name before Continue saves the correction; a blank guess can be filled manually
 - [ ] Title suggestions appear on step 2 and clicking one adds it as a tag
 - [ ] Step 3 shows the industry buttons
 - [ ] "Start searching" runs a scan and reports "N jobs match you"

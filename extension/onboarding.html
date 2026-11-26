@@ -34,6 +34,8 @@
   .found .row:first-of-type{border-top:none}
   .found .row span{color:var(--fg-3)}
   .found .row b{font-weight:600;text-align:right;word-break:break-word}
+  .found .row label{color:var(--fg-3);align-self:center}
+  .found .row input{width:65%;min-width:0;font-size:13.5px}
   .nav-btns{display:flex;gap:10px;margin-top:26px}
   .skip{color:var(--fg-3);font-size:13px;align-self:center;margin-left:auto;cursor:pointer}
   .skip:hover{color:var(--fg)}
@@ -61,6 +63,8 @@
     .skip { width: 100%; text-align: center; margin: 4px 0 0; }
     .found .row { flex-direction: column; gap: 2px; }
     .found .row b { text-align: left; }
+    .found .row label { align-self: flex-start; }
+    .found .row input { width: 100%; }
   }
 </style>
 </head>

@@ -108,6 +108,17 @@ content/prefill.js   the form filler
 content/button.js    the “Fill with JobHunter” button on application pages
 ```
 
+CV parsing regression checks (Node.js 22 or newer, from the repository root):
+
+```sh
+node --test tests/cv.test.mjs
+```
+
+For the browser upload, name editing and styling checks, serve the repository
+locally with `python -m http.server 8765 --bind 127.0.0.1`, then open
+`http://127.0.0.1:8765/tests/onboarding.browser.html`. The page reports PASS or
+FAIL and uses synthetic CVs and simulated extension storage.
+
 There is also a Python version in `../jobhunter/` for power users: same engine,
 plus SMTP email applications and IMAP tracking of company replies — things a
 browser extension cannot do.

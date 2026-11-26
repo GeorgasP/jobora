@@ -69,6 +69,8 @@ $("#file").onchange = (e) => handleFile(e.target.files[0]);
 
 async function handleFile(file) {
   if (!file) return;
+  $("#next1").disabled = true;
+  $("#found").innerHTML = "";
   drop.innerHTML = `<div class="ic">⏳</div><b>${esc(t("onboarding.reading", { file: file.name }))}</b>`
     + `<span>${esc(t("onboarding.readingWait"))}</span>`;
   try {
@@ -82,15 +84,17 @@ async function handleFile(file) {
     drop.innerHTML = `<div class="ic">✅</div><b>${esc(cv.filename)}</b><span>${esc(sub)}</span>`;
 
     const rows = [
-      [t("onboarding.found.name"), guess.name], [t("onboarding.found.email"), guess.email],
+      [t("onboarding.found.email"), guess.email],
       [t("onboarding.found.phone"), guess.phone], [t("onboarding.found.linkedin"), guess.linkedin],
     ].filter(([, v]) => v);
 
-    $("#found").innerHTML = rows.length
-      ? `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
+    $("#found").innerHTML = `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
            letter-spacing:.7px;font-weight:600;margin-bottom:8px">${esc(t("onboarding.foundTitle"))}</div>
-         ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join("")}</div>`
-      : `<div class="found"><div class="row"><span>${esc(t("onboarding.foundNothing"))}</span></div></div>`;
+         <div class="row"><label for="cv-name" data-i18n="onboarding.found.name">${esc(t("onboarding.found.name"))}</label>
+           <input id="cv-name" class="txt" type="text" autocomplete="name" value="${esc(guess.name)}"
+             data-i18n-ph="settings.name" placeholder="${esc(t("settings.name"))}"></div>
+         ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join("")}
+         ${!guess.name && !rows.length ? `<div class="row"><span>${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
       name: guess.name || "", email: guess.email || "", phone: guess.phone || "",
@@ -102,8 +106,17 @@ async function handleFile(file) {
   }
 }
 
-$("#next1").onclick = () => { showSuggestions(); step(2); };
-$("#skip1").onclick = () => { showSuggestions(); step(2); };
+async function continueFromCV() {
+  const name = $("#cv-name");
+  if (name) {
+    guess.name = name.value.trim();
+    await store.saveProfile({ name: guess.name });
+  }
+  showSuggestions();
+  step(2);
+}
+$("#next1").onclick = continueFromCV;
+$("#skip1").onclick = continueFromCV;
 
 function showSuggestions() {
   if (!guess.titles?.length) return;

@@ -140,6 +140,42 @@ async function pdfText(bytes) {
     .replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, " ")
     .replace(/\\(\d{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
 
+  const decodeText = (token, map) => {
+    if (token[0] === "(") {
+      const body = unescapeLiteral(token.slice(1, -1));
+      return map ? decodeWithMap(body, map) : body;
+    }
+    const hex = token.slice(1, -1).replace(/\s+/g, "");
+    let out = "";
+    const width = map ? 4 : 2;
+    for (let i = 0; i + width <= hex.length; i += width) {
+      const code = parseInt(hex.slice(i, i + width), 16);
+      out += map ? map.get(code) ?? "" : String.fromCharCode(code);
+    }
+    return out;
+  };
+
+  const decodeArray = (array, map) => {
+    let out = "", adjustment = 0;
+    const parts = /\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?![\d.])|%[^\r\n]*(?=\r|\n|$)/g;
+    for (const part of array.matchAll(parts)) {
+      const token = part[0];
+      if (token[0] === "%") continue;
+      if (token[0] !== "(" && token[0] !== "<") {
+        adjustment += Number(token);
+        continue;
+      }
+      const text = decodeText(token, map);
+      if (!text) continue;
+      // TJ offsets use thousandths of text space. A large negative offset
+      // advances to the next word; small offsets only adjust letter kerning.
+      if (out && adjustment <= -200 && !/\s$/.test(out) && !/^\s/.test(text)) out += " ";
+      out += text;
+      adjustment = 0;
+    }
+    return out;
+  };
+
   const chunks = [];
   // Τα Tm/Td δεν σημαίνουν πάντα νέα γραμμή — ο Chrome τα χρησιμοποιεί και για
   // μετακίνηση μέσα στην ίδια γραμμή. Κοιτάμε αν άλλαξε το Y.
@@ -149,6 +185,7 @@ async function pdfText(bytes) {
     /\((?:\\.|[^\\()])*\)/,                        // literal string
     /((?:-?[\d.]+\s+){6})Tm/,                      // 3: text matrix
     /((?:-?[\d.]+\s+){2})T[dD]/,                   // 4: text displacement
+    /\[((?:\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?![\d.])|\s|%[^\r\n]*(?=\r|\n|$))*)\]\s*TJ/, // 5: text array
     /T\*|ET|BT/,
   ].map((r) => r.source).join("|"), "g");
 
@@ -165,8 +202,8 @@ async function pdfText(bytes) {
     let map = null;
     let lastY = null, lastX = null;
 
-    // Τα κενά είναι κανονικά glyphs μέσα στο κείμενο· το Td μετακινεί απλώς τον
-    // κέρσορα ανά γράμμα. Νέα γραμμή μόνο όταν αλλάζει το Y.
+    // Cursor moves can stay within a word. Only a change of baseline creates
+    // a newline; numeric word gaps inside TJ arrays are handled separately.
     const moved = (x, y) => {
       if (lastY !== null && Math.abs(y - lastY) > 2) chunks.push("\n");
       lastY = y; lastX = x;
@@ -188,29 +225,18 @@ async function pdfText(bytes) {
         moved((lastX ?? 0) + n[0], (lastY ?? 0) + n[1]);
         continue;
       }
-      if (g[2] !== undefined) {                    // <00030004> hex string
-        const hex = g[2].replace(/\s+/g, "");
-        if (map) {
-          // Με CMap: 4 hex ψηφία = ένας κωδικός glyph, απευθείας στον χάρτη.
-          let out = "";
-          for (let i = 0; i + 3 < hex.length; i += 4) out += map.get(parseInt(hex.slice(i, i + 4), 16)) ?? "";
-          chunks.push(out);
-        } else {
-          // Χωρίς CMap: 2 hex ψηφία = ένας χαρακτήρας.
-          let out = "";
-          for (let i = 0; i + 1 < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-          chunks.push(out);
-        }
+      if (g[5] !== undefined) {                    // [(First)-260(Last)] TJ
+        chunks.push(decodeArray(g[5], map));
         continue;
       }
-      if (token[0] === "(") {                      // (literal)
-        const body = unescapeLiteral(token.slice(1, -1));
-        chunks.push(map ? decodeWithMap(body, map) : body);
+      if (g[2] !== undefined || token[0] === "(") {
+        chunks.push(decodeText(token, map));
         continue;
       }
       if (token === "T*") { chunks.push("\n"); lastY = null; }
       else if (token === "ET" || token === "BT") { lastX = null; }
     }
+    chunks.push("\n");
     if (chunks.length > 60000) break;
   }
 
@@ -300,6 +326,102 @@ const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w\-]+/i;
 // αναγνωριστεί μέσα στο βιογραφικό.
 const COMMON_TITLES = ALL_PROFESSIONS;
 
+const foldName = (s) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+const NAME_LABELS = new Set([
+  "name", "full name", "first and last name", "ονομα", "ονοματεπωνυμο", "ονομα και επωνυμο",
+  "nombre", "nombre completo", "nom", "nom complet", "nome", "nome completo",
+  "vollstandiger name", "imie i nazwisko",
+]);
+const NAME_PARTICLES = new Set(["al", "bin", "da", "das", "de", "del", "della", "der", "di", "do", "dos", "du", "la", "le", "van", "von", "y"]);
+// These describe CV sections, qualifications, organisations or prose. Occupations
+// such as Baker and Cook are deliberately absent: they can also be surnames.
+const NON_NAME_WORDS = new Set((
+  "cv curriculum vitae resume training trained certification certifications certificate certified " +
+  "education qualifications qualification experience employment professional profile personal details " +
+  "summary objective skills interests hobbies language languages references contact information address " +
+  "university college school academy institute company corporation ltd limited inc group services " +
+  "bachelor bachelors master masters degree diploma course courses award awards work history " +
+  "software engineering development management customer service sales marketing human resources " +
+  "street road avenue city country phone telephone email linkedin github native fluent intermediate " +
+  "excellent strong team player communication available upon request citizen citizenship nationality " +
+  "authorization eligible permit the and with for of in at " +
+  "βιογραφικο σημειωμα εκπαιδευση καταρτιση πιστοποιηση σεμιναριο σεμιναρια πτυχιο εμπειρια " +
+  "επαγγελματικη δεξιοτητες γλωσσες συστασεις επικοινωνια στοιχεια διευθυνση τηλεφωνο"
+).split(/\s+/));
+const PROFESSION_NAMES = new Set(COMMON_TITLES.map(foldName));
+const NAME_WORD = /^[\p{L}\p{M}]+(?:['’.-][\p{L}\p{M}]+)*\.?$/u;
+
+function nameLabel(line) {
+  const colon = line.search(/[:：]/);
+  if (colon >= 0 && NAME_LABELS.has(foldName(line.slice(0, colon).trim()))) {
+    return { labelled: true, value: line.slice(colon + 1).trim() };
+  }
+  return { labelled: NAME_LABELS.has(foldName(line)), value: "" };
+}
+
+function guessName(text, contact) {
+  const lines = text.normalize("NFKC").split(/\r\n?|\n/)
+    .map((line) => line.replace(/^[#*•\s]+|[*\s]+$/g, "").replace(/\s+/g, " "));
+  const aliases = [contact.email.split("@")[0], contact.linkedin.split("/").pop() || ""]
+    .filter(Boolean).map((s) => foldName(s).replace(/[^\p{L}]/gu, ""));
+  const contactLines = lines.map((line, i) =>
+    [contact.email, contact.phone, contact.linkedin].some((s) => s && line.includes(s)) ? i : -1
+  ).filter((i) => i >= 0);
+  const candidates = new Map();
+
+  const add = (value, index, labelled = false, joined = false) => {
+    value = value.replace(/^(?:mr|mrs|ms|miss|dr|prof)\.?\s+/i, "").trim();
+    if (value.length < 2 || value.length > 70) return;
+    const words = value.split(/\s+/);
+    if (words.length < (labelled ? 1 : 2) || words.length > 6 || !words.every((w) => NAME_WORD.test(w))) return;
+    const folded = words.map(foldName);
+    if (folded.some((w) => NON_NAME_WORDS.has(w)) || PROFESSION_NAMES.has(folded.join(" "))) return;
+    const significant = folded.filter((w) => !NAME_PARTICLES.has(w)).map((w) => w.replace(/[^\p{L}]/gu, ""));
+    if (!significant.length || (!labelled && significant.filter((w) => w.length > 1).length < 2)) return;
+
+    const capitals = words.every((w, i) => NAME_PARTICLES.has(folded[i]) || /^\p{Lu}/u.test(w));
+    const first = significant[0], last = significant.at(-1);
+    const matchesAlias = significant.length >= 2 && last.length >= 3 && aliases.some((alias) =>
+      alias.includes(last) && (alias.includes(first) || alias.startsWith(first[0])));
+    let score = labelled ? 12 : 0;
+    if (matchesAlias) score += 10;
+    if (capitals) score += 3;
+    if (index === 0) score += 3;
+    else if (index < 20) score += 2;
+    if (contactLines.some((i) => Math.abs(i - index) <= 2)) score += 2;
+    if (joined) score -= 0.5;
+    const key = foldName(value);
+    if (score > (candidates.get(key)?.score ?? -1)) candidates.set(key, { value, score });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const label = nameLabel(lines[i]);
+    if (label.labelled) {
+      const value = label.value || lines[i + 1] || "";
+      // A label may precede a first and last name on separate lines.
+      const next = lines[i + (label.value ? 1 : 2)] || "";
+      if (NAME_WORD.test(value) && NAME_WORD.test(next) &&
+          !NON_NAME_WORDS.has(foldName(next)) && !PROFESSION_NAMES.has(foldName(next))) {
+        add(`${value} ${next}`, i, true);
+      } else {
+        add(value, i, true);
+      }
+    } else {
+      add(lines[i], i);
+      // PDF generators sometimes draw a first and last name on separate lines.
+      if (NAME_WORD.test(lines[i]) && NAME_WORD.test(lines[i + 1] || "") &&
+          !PROFESSION_NAMES.has(foldName(lines[i])) && !PROFESSION_NAMES.has(foldName(lines[i + 1]))) {
+        add(`${lines[i]} ${lines[i + 1]}`, i, false, true);
+      }
+    }
+  }
+  const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  // Do not turn an uncertain phrase into the identity used on applications.
+  if (!best || best.score < 3 || (ranked[1] && best.score - ranked[1].score < 2)) return "";
+  return best.value;
+}
+
 export function guessFromCV(text) {
   const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
   if (!text) return out;
@@ -310,14 +432,9 @@ export function guessFromCV(text) {
   out.linkedin = (text.match(LINKEDIN_RE) || [""])[0];
   out.github = (text.match(GITHUB_RE) || [""])[0];
 
-  // Το όνομα είναι σχεδόν πάντα η πρώτη «καθαρή» γραμμή του CV.
-  for (const raw of text.split(/\n/).slice(0, 12)) {
-    const line = raw.replace(/^[#*\s]+/, "").trim();
-    if (line.length < 4 || line.length > 45) continue;
-    if (/[@\d]|http|curriculum|resume|\bcv\b/i.test(line)) continue;
-    const words = line.split(/\s+/);
-    if (words.length >= 2 && words.length <= 4) { out.name = line; break; }
-  }
+  // PDF storage order can differ from the visible header. Compare plausible
+  // names using labels and contact details, and reject qualifications.
+  out.name = guessName(text, out);
 
   const low = text.toLowerCase();
   const scored = COMMON_TITLES
