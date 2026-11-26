@@ -84,16 +84,20 @@ async function handleFile(file) {
     drop.innerHTML = `<div class="ic">✅</div><b>${esc(cv.filename)}</b><span>${esc(sub)}</span>`;
 
     const rows = [
-      [t("onboarding.found.email"), guess.email],
-      [t("onboarding.found.phone"), guess.phone], [t("onboarding.found.linkedin"), guess.linkedin],
-    ].filter(([, v]) => v);
+      ["email", "email", "email"],
+      ["phone", "tel", "tel"],
+      ["linkedin", "url", "url"],
+      ["github", "url", "url"],
+    ].filter(([key]) => guess[key]);
 
     $("#found").innerHTML = `<div class="found"><div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
            letter-spacing:.7px;font-weight:600;margin-bottom:8px">${esc(t("onboarding.foundTitle"))}</div>
          <div class="row"><label for="cv-name" data-i18n="onboarding.found.name">${esc(t("onboarding.found.name"))}</label>
            <input id="cv-name" class="txt" type="text" autocomplete="name" value="${esc(guess.name)}"
              data-i18n-ph="settings.name" placeholder="${esc(t("settings.name"))}"></div>
-         ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${esc(v)}</b></div>`).join("")}
+         ${rows.map(([key, type, autocomplete]) => `<div class="row">
+           <label for="cv-${key}" ${key === "github" ? "" : `data-i18n="onboarding.found.${key}"`}>${key === "github" ? "GitHub" : esc(t(`onboarding.found.${key}`))}</label>
+           <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"></div>`).join("")}
          ${!guess.name && !rows.length ? `<div class="row"><span>${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
@@ -107,11 +111,12 @@ async function handleFile(file) {
 }
 
 async function continueFromCV() {
-  const name = $("#cv-name");
-  if (name) {
-    guess.name = name.value.trim();
-    await store.saveProfile({ name: guess.name });
+  const corrections = {};
+  for (const key of ["name", "email", "phone", "linkedin", "github"]) {
+    const input = $(`#cv-${key}`);
+    if (input) corrections[key] = guess[key] = input.value.trim();
   }
+  if (Object.keys(corrections).length) await store.saveProfile(corrections);
   showSuggestions();
   step(2);
 }
