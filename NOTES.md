@@ -12,6 +12,20 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
+### 2026-11-27 (later) · Claude (for Panos) · Portal permissions and CV formats
+
+- EURES/ESCO, jobfind.gr and xe.gr are now optional permissions
+  (`extension/lib/portals.js`): asked at the end of onboarding, offered once
+  above the matches, and switchable in Settings. Required permissions are again
+  exactly those of 1.1.0, so updating does not turn the extension off.
+- CVs in more formats (`extension/lib/documents.js`, `cv.js`): DOCX with page
+  headers (where Word templates put contact details), ODT, RTF and the old
+  .doc; the format is judged by the file's bytes. PDFs: only page content is
+  read (no more junk from embedded fonts), and compressed object streams work.
+  Name detection now weighs position line by line, so "ABOUT ME" can't tie.
+- Still to do: the Python engine's location matching; a 1.2.0 package; tests
+  with real Word files (the generated ones still hold Office metadata).
+
 ### 2026-11-27 · Claude (for Panos) · Search fixes on branch `search-fixes`, ready for review
 
 Each item is its own commit. Numbers are from real job data, before → after.
@@ -40,11 +54,9 @@ Each item is its own commit. Numbers are from real job data, before → after.
   `extension/README.md`).
 
 Needs care:
-- skywalker.gr now answers automated requests with a Cloudflare challenge. We
-  do not try to get around it; it probably fails in Chrome too, so check the
-  source list after a scan and remove it if it stays at 0.
-- Workday boards (NVIDIA, Adobe, Salesforce) answer 429 with a bot challenge and
-  bring 0 jobs.
+- Correction (later the same day): skywalker.gr and the Workday boards block
+  requests from Node.js only; from a real browser they answer normally, so
+  they work in the extension. Node-based measurements undercount them.
 - `jobora/matcher.py` (the Python engine) still matches locations the old way.
 - xe.gr titles and areas come from each ad's address; for some ads the "area"
   is the employer's name.
