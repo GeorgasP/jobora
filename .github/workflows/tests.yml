@@ -28,3 +28,8 @@ jobs:
 
       - name: Run the tests
         run: node --test "tests/*.test.mjs"
+
+      # The Python engine (jobora/) uses the standard library only, so the
+      # runner's own Python is enough.
+      - name: Run the Python engine's tests
+        run: python3 -m unittest discover -s tests

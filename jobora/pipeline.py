@@ -53,7 +53,7 @@ def scan(conn: sqlite3.Connection, user_id: int, profile: Profile, settings: Set
         job_id, is_new = db.upsert_job(conn, job)
         report.jobs_new += int(is_new)
 
-        score, reasons = matcher.score_job(job, profile.preferences)
+        score, reasons = matcher.score_job(job, profile.preferences, home=profile.location)
         if score < settings.min_score:
             db.drop_pending_match(conn, user_id, job_id)   # άλλαξαν preferences
             continue
@@ -71,7 +71,7 @@ def rescore(conn: sqlite3.Connection, user_id: int, profile: Profile, settings: 
     kept = dropped = 0
     for row in db.all_jobs(conn):
         job = dict(row)
-        score, reasons = matcher.score_job(job, profile.preferences)
+        score, reasons = matcher.score_job(job, profile.preferences, home=profile.location)
         if score < settings.min_score:
             dropped += int(db.drop_pending_match(conn, user_id, row["id"]))
             continue

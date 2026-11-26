@@ -8,8 +8,10 @@ false positives ("κάπου στη σελίδα γράφει customer success" 
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from datetime import datetime, timezone
 
+from .places import fold, places_in, regions_of, regions_overlap, resolve_place
 from .profile import Preferences
 
 # βάρη ανά κατηγορία — άθροισμα 100
@@ -30,45 +32,90 @@ LANGUAGE_SIGNALS = {
 }
 
 
-# Αγγελίες ανοιχτές σε όλο τον κόσμο — δεν κόβονται ποτέ γεωγραφικά.
-GLOBAL_MARKERS = ("worldwide", "anywhere", "global", "fully remote", "remote - global")
+# ── Where a job is, and whether the user wants to work there ──
+# The same rules as extension/lib/matcher.js, on the same place data.
 
-REMOTE_WORDS = ("remote", "anywhere", "worldwide", "work from home", "distributed")
 
-# Συντομογραφίες περιοχών → πώς γράφονται στις αγγελίες.
-REGION_ALIASES = {
-    "eu": ("eu", "europe", "european", "emea"),
-    "europe": ("europe", "european", "eu", "emea"),
-    "emea": ("emea", "europe", "middle east", "africa"),
-    "us": ("us", "usa", "u.s.", "united states", "america"),
-    "usa": ("usa", "us", "u.s.", "united states"),
-    "uk": ("uk", "united kingdom", "england", "britain", "london"),
-    "uae": ("uae", "united arab emirates", "dubai", "abu dhabi"),
-    "apac": ("apac", "asia", "asia-pacific", "asia pacific"),
-    "latam": ("latam", "latin america", "south america"),
-    "anz": ("anz", "australia", "new zealand"),
-}
+def _job_places(job: dict):
+    """The places a job names: in its location and source country, and (names only) in its title."""
+    where = places_in(job.get("location") or "") | places_in(job.get("country") or "")
+    return where, places_in(job.get("title") or "", True)
+
+
+@lru_cache(maxsize=64)
+def _user_places(locations: tuple, blocked: tuple, home: str) -> dict:
+    """
+    What the user's locations mean: the places they want, the ones they
+    blocked, and where they are. Where they are is the countries they named
+    plus the country of their own address; it decides which remote jobs are open.
+    """
+    def resolve(typed):
+        places = []
+        for place in map(resolve_place, typed):
+            if not place["label"]:
+                continue
+            if place["kind"] == "text":
+                place = {**place, "pattern": re.compile(r"(?<!\w)" + re.escape(place["text"]) + r"(?!\w)")}
+            places.append(place)
+        return places
+
+    wanted = resolve(locations)
+    home_countries = {p["country"] for p in wanted if p.get("country")} | set(places_in(home).countries)
+    return {
+        "wanted": wanted,
+        "blocked": resolve(blocked),
+        "home_countries": home_countries,
+        "home_regions": [region for country in home_countries for region in regions_of(country)],
+        "wanted_regions": [p["region"] for p in wanted if p["kind"] == "region"],
+    }
+
+
+def _is_remote_job(job: dict, where) -> bool:
+    return bool(job.get("remote")) or where.remote
+
+
+def _in_region(region: str, places) -> bool:
+    return (any(regions_overlap(r, region) for r in places.regions)
+            or any(region in regions_of(country) for country in places.countries))
+
+
+def _open_to_user(where, user: dict) -> bool:
+    """
+    Whether a remote job is open to the user. One that names no place, or says
+    worldwide, is open to everyone; one that names places ("Remote - Canada",
+    "Remote (Europe)") only to people in them. If we don't know where the user
+    is, we can't tell, so it counts as open.
+    """
+    if where.global_ or (not where.countries and not where.regions):
+        return True
+    if not user["home_countries"] and not user["wanted_regions"]:
+        return True
+    if where.countries & user["home_countries"]:
+        return True
+    mine = user["home_regions"] + user["wanted_regions"]
+    if any(regions_overlap(r, m) for r in where.regions for m in mine):
+        return True
+    # The user wants a whole region ("EU") and the job is limited to a country in it.
+    return any(region in regions_of(country) for country in where.countries for region in user["wanted_regions"])
+
+
+def _in_place(place: dict, job: dict, where, in_title, user: dict) -> bool:
+    """Whether a job is in one place the user typed."""
+    kind = place["kind"]
+    if kind == "remote":
+        return _is_remote_job(job, where) and _open_to_user(where, user)
+    if kind == "city":
+        return place["city"] in where.cities or place["city"] in in_title.cities
+    if kind == "country":
+        return place["country"] in where.countries or place["country"] in in_title.countries
+    if kind == "region":
+        return _in_region(place["region"], where) or _in_region(place["region"], in_title)
+    # A place the places module doesn't know, such as a small town: its words must appear.
+    return bool(place["pattern"].search(fold(f"{job.get('location') or ''} {job.get('title') or ''}")))
 
 
 def _norm(s: str | None) -> str:
     return (s or "").lower()
-
-
-def _location_hits(location: str, wanted: list[str]) -> list[str]:
-    """Ποιες από τις περιοχές σου καλύπτει η αγγελία. Δουλεύει για κάθε χώρα."""
-    hits = []
-    for loc in wanted:
-        low = loc.strip().lower()
-        if not low:
-            continue
-        if low in REMOTE_WORDS:
-            if any(w in location for w in REMOTE_WORDS):
-                hits.append("Remote")
-            continue
-        variants = REGION_ALIASES.get(low, (low,))
-        if any(v in location for v in variants):
-            hits.append(loc)
-    return hits
 
 
 def _age_days(posted_at: str | None) -> float | None:
@@ -88,8 +135,8 @@ def _phrase_in(phrase: str, text: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(phrase.lower()) + r"(?!\w)", text) is not None
 
 
-def score_job(job: dict, prefs: Preferences) -> tuple[int, dict]:
-    """Returns (score 0-100, reasons). score == 0 σημαίνει «μη το δείξεις»."""
+def score_job(job: dict, prefs: Preferences, home: str = "") -> tuple[int, dict]:
+    """Returns (score 0-100, reasons); 0 means "don't show it". `home` is the user's own address (Profile.location)."""
     title = _norm(job.get("title"))
     location = _norm(job.get("location"))
     description = _norm(job.get("description"))[:6000]
@@ -109,18 +156,23 @@ def score_job(job: dict, prefs: Preferences) -> tuple[int, dict]:
     if prefs.remote_only and not (job.get("remote") or "remote" in haystack):
         return 0, {"rejected": "not remote"}
 
-    # ─── Γεωγραφία ──────────────────────────────────────────────
-    # Ίδια λογική για κάθε χώρα του κόσμου: "Remote — US only" δεν σε αφορά αν
-    # είσαι στη Βραζιλία, όπως "Remote — LATAM" δεν αφορά κάποιον στην Ιαπωνία.
-    geo_hits = _location_hits(location, prefs.locations)
-    globally_open = any(w in location for w in GLOBAL_MARKERS) or not location
+    # ─── Location ───────────────────────────────────────────────
+    # The same rules for every country: "Remote - US only" is not for someone
+    # in Brazil, as "Remote - LATAM" is not for someone in Japan.
+    where, in_title = _job_places(job)
+    user = _user_places(tuple(prefs.locations), tuple(prefs.blocked_locations), home or "")
+    geo_hits = [p["label"] for p in user["wanted"] if _in_place(p, job, where, in_title, user)]
+    # Only the ad itself can say it is open everywhere; an ad with no location says nothing.
+    globally_open = where.global_
 
-    blocked_hit = next((b for b in prefs.blocked_locations if b.lower() in location), None)
+    blocked_hit = next((p["label"] for p in user["blocked"]
+                        if (_is_remote_job(job, where) if p["kind"] == "remote"
+                            else _in_place(p, job, where, in_title, user))), None)
     if blocked_hit and not geo_hits:
         return 0, {"rejected": f"blocked location: {blocked_hit}"}
 
-    if prefs.strict_location and prefs.locations and not geo_hits and not globally_open:
-        return 0, {"rejected": f"location outside your list: {job.get('location')}"}
+    if prefs.strict_location and user["wanted"] and not geo_hits and not globally_open:
+        return 0, {"rejected": f"location outside your list: {job.get('location') or 'no location given'}"}
 
     age = _age_days(job.get("posted_at"))
     if age is not None and prefs.max_age_days and age > prefs.max_age_days:
@@ -146,7 +198,8 @@ def score_job(job: dict, prefs: Preferences) -> tuple[int, dict]:
         reasons["location_match"] = sorted(set(geo_hits))
     elif globally_open or not prefs.locations:
         score += W_LOCATION * 0.7
-        reasons["location_match"] = ["Worldwide"]
+        if globally_open:
+            reasons["location_match"] = ["Worldwide"]
 
     # ─── Industry ───────────────────────────────────────────────
     industry_hits = [i for i in prefs.industries if _phrase_in(i, haystack)]

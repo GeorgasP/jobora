@@ -7,7 +7,8 @@
   instead of bare numbers, small functions, comments that explain why.
   Comments are in English.
 - Every bug fix comes with a test that fails before the fix. Run all tests with
-  `node --test "tests/*.test.mjs"` (GitHub runs the same on every pull request).
+  `node --test "tests/*.test.mjs"` and `python -m unittest discover -s tests`
+  (GitHub runs both on every pull request).
 - Start each change on its own branch from an up-to-date `main`, and merge it
   through a pull request.
 - Before every push: `git fetch --all`, look at what Apo has pushed since (on
