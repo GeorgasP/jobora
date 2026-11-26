@@ -316,7 +316,6 @@ export async function readCV(file) {
 
 /* ── What we can guess from the text ─────────────────────── */
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]*[\w]/;
-const PHONE_RE = /(\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3}[\s.-]?\d{3,4}/;
 const LINKEDIN_RE = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[\w\-%]+/i;
 const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w\-]+/i;
 
@@ -552,14 +551,63 @@ function suggestTitles(text) {
     .map((entry) => entry.title);
 }
 
+// A phone number as CVs write it: an optional international prefix (+30,
+// 0030, (+30)) and digit groups separated by spaces, dots, dashes or brackets,
+// never across a line break. Every country groups digits differently
+// (+41 79 123 45 67, +33 6 12 34 56 78, +44 7700 900123), so the pattern
+// leaves the layout open and the digit count decides afterwards.
+const PHONE_CANDIDATE = /(?<![\p{L}\p{N}+])\(?(?:\+|00)?\d[\d \t .()-]{5,}\d/gu;
+const PHONE_DIGITS = { min: 8, max: 15 };  // 15 is the international (E.164) maximum
+const PHONE_HEADER_LINES = 15;             // where CVs put contact details
+// The words just before a number say what it is.
+const PHONE_LABEL = /(?:^|[^\p{L}])(?:tel|phone|mobile|mob|cell|τηλ|κιν|telefon|celular|movil|cellulare|handy|gsm|whatsapp|telemovel)\p{L}*\.?[^\p{L}\p{N}]{0,4}$|[📞☎✆]\s*$/u;
+const NOT_PHONE_LABEL = /(?:^|[^\p{L}])(?:vat|afm|αφμ|iban|amka|αμκα|tax|passport|postal|zip|fax|id)[^\p{L}\p{N}]{0,4}$/u;
+// Years side by side ("2019-2024", "2018 2019") and dates ("01.02.2020") have
+// phone-like digit counts.
+const DATE_LIKE = /^(?:(?:(?:19|20)\d\d[\s./-]*){2,}|\d{1,2}[.-]\d{1,2}[.-]\d{2,4})$/;
+// Points for each sign that a number is the applicant's phone. A number needs
+// at least one of them: a bare number deep in the text is more likely an ID.
+const PHONE_EVIDENCE = { labelled: 3, internationalPrefix: 2, inHeader: 1 };
+
+/** Removes a bracket left open at the start, as in "(+30 694 123 4567". */
+function balanceBrackets(value) {
+  const opened = (value.match(/\(/g) || []).length;
+  const closed = (value.match(/\)/g) || []).length;
+  return opened > closed && value.startsWith("(") ? value.slice(1).trim() : value;
+}
+
+/** The applicant's phone number as the CV writes it, or "" when there is none. */
+function findPhone(text) {
+  let best = null;
+  text.split(/\r\n?|\n/).forEach((line, lineIndex) => {
+    for (const match of line.matchAll(PHONE_CANDIDATE)) {
+      const value = match[0].trim();
+      const digits = value.replace(/\D/g, "").replace(/^00/, "");
+      if (digits.length < PHONE_DIGITS.min || digits.length > PHONE_DIGITS.max) continue;
+      if (DATE_LIKE.test(value)) continue;
+
+      const before = foldName(line.slice(Math.max(0, match.index - 25), match.index));
+      if (NOT_PHONE_LABEL.test(before)) continue;
+
+      let score = 0;
+      if (PHONE_LABEL.test(before)) score += PHONE_EVIDENCE.labelled;
+      if (/^\(?(?:\+|00)/.test(value)) score += PHONE_EVIDENCE.internationalPrefix;
+      if (lineIndex < PHONE_HEADER_LINES) score += PHONE_EVIDENCE.inHeader;
+      // Strictly greater: the first number wins a tie, and a number with no
+      // evidence at all never wins.
+      if (score > (best?.score ?? 0)) best = { score, value };
+    }
+  });
+  return best ? balanceBrackets(best.value) : "";
+}
+
 /** Guesses contact details, the applicant's name and likely job titles from the CV text. */
 export function guessFromCV(text) {
   const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
   if (!text) return out;
 
   out.email = (text.match(EMAIL_RE) || [""])[0];
-  const phone = text.match(PHONE_RE);
-  if (phone && phone[0].replace(/\D/g, "").length >= 9) out.phone = phone[0].trim();
+  out.phone = findPhone(text);
   out.linkedin = (text.match(LINKEDIN_RE) || [""])[0];
   out.github = (text.match(GITHUB_RE) || [""])[0];
 

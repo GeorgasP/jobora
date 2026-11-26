@@ -52,6 +52,30 @@ test("contact details distinguish the applicant from another named person", () =
   assert.equal(guessFromCV("dimitra mousounaki\ndimitra.mousounaki@example.test").name, "dimitra mousounaki");
 });
 
+test("phone numbers are read however a country groups the digits", () => {
+  for (const phone of [
+    "+30 694 123 4567", "+30 6941234567", "(+30) 694 123 4567", "0030 694 123 4567",
+    "+30 694.123.4567", "+41 79 123 45 67", "+31 6 12345678", "+33 6 12 34 56 78",
+    "+44 7700 900123", "+49 151 23456789", "+1 (415) 555-0123", "+357 99 123456",
+  ]) assert.equal(guessFromCV(`Maria Papadopoulou\n${phone}`).phone, phone);
+});
+
+test("a labelled phone number is found among other numbers", () => {
+  assert.equal(guessFromCV("Maria P\nΚινητό: 6941234567").phone, "6941234567");
+  assert.equal(guessFromCV("Maria P\nTel: +30 210 123 4567").phone, "+30 210 123 4567");
+  assert.equal(guessFromCV("Maria P\nSpata 19004, Greece | +30 694 123 4567 | maria@x.test").phone,
+    "+30 694 123 4567");
+});
+
+test("years, dates and ID numbers are not taken for a phone number", () => {
+  for (const text of [
+    "Maria P\nWaitress, 2019-2024\nBarista 2018 2019",
+    "Maria P\nBorn 01.02.1990",
+    "Maria P\nVAT 123456789\nIBAN GR16 0110 1250 0000 0001 2300 695",
+    "Maria P\nmaria@x.test\nFax: +30 210 123 4567",
+  ]) assert.equal(guessFromCV(text).phone, "", text);
+});
+
 test("similarly plausible people are left for the user to resolve", () => {
   assert.equal(guessFromCV("Alex Johnson\nSam Wilson").name, "");
 });
