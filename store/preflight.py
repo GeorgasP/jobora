@@ -105,10 +105,42 @@ if not shots:
 else:
     ok(f"{len(shots)} screenshots βρέθηκαν")
 
+# ── Εκδοση: πρέπει να ξεπερνάει τη δημοσιευμένη ─────────────────────
+# Το store αρνείται ανέβασμα με ίδιο ή μικρότερο αριθμό. Δεν το λέει καθαρά
+# μέχρι να έχεις σύρει το zip και να περιμένεις.
+PUBLISHED_ID = "fbaoaohhakcbkebgnmpjnoilippdhioi"
+try:
+    import urllib.request
+    req = urllib.request.Request(
+        f"https://chromewebstore.google.com/detail/{PUBLISHED_ID}",
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"})
+    page = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+    live = re.search(r"(\d+\.\d+(?:\.\d+){0,2})(?=[^<]{0,40}(?:Version|version))", page)
+    if live:
+        def tup(v): return tuple(int(x) for x in v.split("."))
+        if tup(m["version"]) <= tup(live.group(1)):
+            bad(f"η έκδοση {m['version']} δεν ξεπερνάει τη δημοσιευμένη {live.group(1)}")
+        else:
+            ok(f"έκδοση {m['version']} > δημοσιευμένη {live.group(1)}")
+    else:
+        warn(f"δεν διάβασα τη δημοσιευμένη έκδοση — βεβαιώσου ότι το {m['version']} την ξεπερνάει")
+except Exception as e:
+    warn(f"δεν ελέγχθηκε η δημοσιευμένη έκδοση ({type(e).__name__})")
+
 # ── Πολιτική απορρήτου ──────────────────────────────────────────────
 if (R / "store/PRIVACY.html").exists(): ok("PRIVACY.html υπάρχει τοπικά")
 else: bad("λείπει το PRIVACY.html")
-warn("η πολιτική πρέπει να είναι σε ΔΗΜΟΣΙΟ URL — το τοπικό αρχείο δεν αρκεί")
+# Δεν αρκεί το τοπικό αρχείο: η Google ζητάει URL που ανοίγει χωρίς login.
+# Το ελέγχουμε αντί να το υπενθυμίζουμε κάθε φορά.
+PRIVACY_URL = "https://georgasp.github.io/jobora/privacy.html"
+try:
+    import urllib.request
+    with urllib.request.urlopen(PRIVACY_URL, timeout=15) as r:
+        if r.status == 200: ok(f"η πολιτική είναι δημόσια: {PRIVACY_URL}")
+        else: warn(f"η πολιτική απάντησε {r.status} — {PRIVACY_URL}")
+except Exception as e:
+    warn(f"η πολιτική δεν ανοίγει δημόσια ({type(e).__name__}) — {PRIVACY_URL}")
 
 # ── Locales ─────────────────────────────────────────────────────────
 locs = list((E / "locales").glob("*.json"))
@@ -195,7 +227,10 @@ for s in stages:
 
 # ── 3. Κλειδιά που υπάρχουν αλλά δεν χρησιμοποιούνται πουθενά ────────
 print("3 · Κλειδιά που δεν χρησιμοποιούνται")
-dyn_prefixes = ("stage.", "settings.experience.", "time.", "popup.", "notify.", "error.", "fill.")
+# «reject.» χτίζεται με template literal από την κατηγορία απόρριψης,
+# οπότε καμία αναζήτηση κειμένου δεν θα το δει ως χρήση.
+dyn_prefixes = ("stage.", "settings.experience.", "time.", "popup.", "notify.",
+                "error.", "fill.", "reject.")
 unused = [k for k in en if k not in used and not k.startswith(dyn_prefixes)]
 if unused: warn(f"{len(unused)} αχρησιμοποίητα: {', '.join(unused[:6])}{'…' if len(unused) > 6 else ''}")
 print(f"   {len(unused)}\n")

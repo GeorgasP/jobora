@@ -21,16 +21,17 @@ unpacked» ανοίγει native παράθυρο των Windows.
 4. Στο παράθυρο που άνοιξε, πήγαινε στο:
    `C:\Users\Panos\Desktop\JobHunt\extension`
    Επίλεξε **τον φάκελο** (όχι αρχείο μέσα του) και πάτα «Επιλογή φακέλου»
-5. Εμφανίζεται η κάρτα «JobHunter — automatic job search» με το εικονίδιο-στόχο
+5. Εμφανίζεται η κάρτα «Jobora — automatic job search» με το εικονίδιο-στόχο
 
 > **Αν δεις κόκκινο κουμπί «Errors»** πάτα το, αντίγραψε το μήνυμα και στείλε
 > μου το. Σημαίνει ότι ο service worker δεν ξεκίνησε.
 
 6. Θα ανοίξει μόνη της η καρτέλα setup. Ακολούθησε τα 3 βήματα με το CV σου.
 7. Πέρνα το `SMOKE_TEST.md` — έχει κουτάκια. Δώσε βάρος σε δύο σημεία:
-   - **Όλες οι 23 πηγές να απαντούν.** Στα δικά μου τεστ δύο (Himalayas,
-     WorkingNomads) απέτυχαν λόγω CORS — περιορισμός της δοκιμής, όχι του
-     extension. Εδώ πρέπει να δουλεύουν. Αν όχι, πες μου.
+   - **Όλες οι 20 πηγές να απαντούν.** Χτυπήθηκαν όλες απευθείας και
+     απάντησαν, αλλά αυτό δεν αποδεικνύει ότι το κάνουν και μέσα από τον
+     service worker — εκεί μεσολαβεί το host_permissions. Αν κάποια αποτύχει,
+     το toast λέει πλέον το όνομά της· στείλ' το μου.
    - **Δοκίμασε autofill σε μία αγγελία από Greenhouse, Lever, Ashby και
      Workable.** Έχουν διαφορετικές φόρμες. Εκεί είναι το πιθανότερο σπάσιμο.
 
@@ -62,13 +63,13 @@ unpacked» ανοίγει native παράθυρο των Windows.
 **Με GitHub (δωρεάν):**
 
 1. github.com → σύνδεση → **New repository**
-2. Όνομα `jobhunter`, **Public**, πάτα Create
+2. Όνομα `jobora`, **Public**, πάτα Create
 3. Στη σελίδα του repo: **uploading an existing file**
 4. Σύρε μέσα το `store/PRIVACY.html`, πάτα **Commit changes**
 5. **Settings** (μενού του repo) → **Pages** (αριστερή στήλη)
 6. Source: **Deploy from a branch** → Branch: **main** → folder **/ (root)** → Save
 7. Περίμενε 1-2 λεπτά. Το URL σου θα είναι:
-   `https://<το-username-σου>.github.io/jobhunter/PRIVACY.html`
+   `https://<το-username-σου>.github.io/jobora/PRIVACY.html`
 8. Άνοιξέ το σε ανώνυμο παράθυρο για να βεβαιωθείς ότι φορτώνει
 
 Κράτα αυτό το URL — μπαίνει στη φόρμα στο βήμα Δ.
@@ -95,7 +96,7 @@ unpacked» ανοίγει native παράθυρο των Windows.
 ## Ε · Η υποβολή  (20 λεπτά)
 
 1. Developer Dashboard → **Add new item**
-2. Ανέβασε το `store/dist/jobhunter-1.0.0.zip`
+2. Ανέβασε το `store/dist/jobora-1.0.0.zip`
 3. **Store listing**: αντίγραψε από το `LISTING.md` — όνομα, σύντομη
    περιγραφή, αναλυτική περιγραφή. Κατηγορία **Productivity**, γλώσσα English.
    Ανέβασε τα 4 screenshots και το `extension/icons/128.png` ως store icon.
@@ -130,7 +131,7 @@ python store/package.py --bump 1.0.1
 
 ## Ένα πράγμα να αποφασίσεις πριν το βήμα Ε
 
-**Το όνομα.** «JobHunter» είναι γενικό και υπάρχουν παρόμοια προϊόντα. Η Google
+**Το όνομα.** «Jobora» είναι γενικό και υπάρχουν παρόμοια προϊόντα. Η Google
 δεν ελέγχει εμπορικά σήματα, αλλά ένας δικαιούχος μπορεί να ρίξει το listing
 αργότερα — αφού έχεις χτίσει χρήστες και κριτικές. Ψάξ' το στο Chrome Web Store
 και στο euipo.europa.eu πριν το κλειδώσεις. Η αλλαγή ονόματος τώρα κοστίζει ένα

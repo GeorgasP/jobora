@@ -1,4 +1,4 @@
-# Shipping JobHunter to the Chrome Web Store
+# Shipping Jobora to the Chrome Web Store
 
 The package is built and passes the automated checks. What remains needs your
 hands — an account, a payment, a hosted URL and four screenshots.
@@ -6,7 +6,12 @@ hands — an account, a payment, a hosted URL and four screenshots.
 ```bash
 python store/package.py
 ```
-→ `store/dist/jobhunter-1.0.0.zip` · 21 files · 45 KB
+→ `store/dist/jobora-1.0.0.zip` · 35 files · 140 KB
+
+```bash
+python store/preflight.py
+```
+→ must print `0 μπλοκάρουν την υποβολή`
 
 ---
 
@@ -23,51 +28,48 @@ Only you can do this — it needs your payment method.
 
 ---
 
-## Step 2 — Host the privacy policy (10 minutes)
+## Step 2 — Privacy policy ✅ done
 
 A privacy policy URL is **mandatory** for us, because the extension handles
-personal information. It must be publicly reachable without a login.
+personal information, and it must be reachable without a login. Ours is live:
 
-`store/PRIVACY.md` is written and ready. The cheapest way to host it:
+```
+https://georgasp.github.io/jobora/privacy.html
+```
 
-1. Create a public GitHub repo (e.g. `jobhunter`)
-2. Push the project, or at minimum `store/PRIVACY.md`
-3. Settings → Pages → deploy from `main` → the file is served at
-   `https://<you>.github.io/jobhunter/store/PRIVACY.html`
-
-A public Gist also works. Whatever URL you end up with goes in the Privacy tab
-of the listing.
+It is generated from `store/PRIVACY.md` by `store/privacy_html.py` into `docs/`,
+which GitHub Pages serves. If the extension's behaviour changes — a new source,
+a new permission — edit the Markdown, regenerate, and **push**, or the public
+page still says the old thing.
 
 ---
 
-## Step 3 — Screenshots (15 minutes)
+## Step 3 — Screenshots ✅ done
 
-At least one is required; five are allowed. Four are prepared, sized exactly
-1280×800, in `store/screenshots/`:
+Five are ready at exactly 1280×800 in `store/screenshots/`, and they are
+produced by a script rather than by hand, because a hand-taken capture comes
+out the size of your window, not the size Google wants:
+
+```bash
+python store/shoot.py
+```
 
 | File | Shows |
 |---|---|
-| `1-matches.html` | The ranked matches with score rings and the reasons |
-| `2-pipeline.html` | The application pipeline board |
-| `3-autofill.html` | A real application form, filled, CV attached |
-| `4-onboarding.html` | CV upload with details read out of it |
+| `1.png` | The ranked matches with score rings and the reasons |
+| `2.png` | The application pipeline board |
+| `3.png` | The profile page — photo, your own words, CV |
+| `4.png` | A real application form, filled, CV attached |
+| `5.png` | CV upload with details read out of it |
 
-To capture each one at exact pixel size:
-
-1. Open the file in Chrome
-2. `F12` → toggle device toolbar (`Ctrl+Shift+M`) → set **1280 × 800**
-3. `Ctrl+Shift+P` → type *screenshot* → **Capture screenshot**
-
-That saves a PNG at exactly the right size, no cropping needed.
-
-Order them 1 → 4 in the listing; the first is the one people actually look at.
+Upload them in that order; the first is the one people actually look at.
 
 ---
 
 ## Step 4 — Create the listing (20 minutes)
 
 In the Developer Dashboard: **Add new item** → upload
-`store/dist/jobhunter-1.0.0.zip`.
+`store/dist/jobora-1.0.0.zip`.
 
 Then work through the tabs, pasting from `LISTING.md`:
 
@@ -100,7 +102,7 @@ python store/package.py --bump 1.0.1
 
 ## Things worth knowing before you press submit
 
-**The name.** "JobHunter" is generic and there are products using similar names.
+**The name.** "Jobora" is generic and there are products using similar names.
 Google will not check trademarks for you, but a rights holder can file a
 complaint later and get the listing pulled. Search the Web Store and the EUIPO
 register for the name before you commit to it. If you want to be safe, a
@@ -118,6 +120,6 @@ gated behind an account or a key. That is a meaningful advantage during review.
 **Updates.** Each update goes through review again. Batch changes rather than
 shipping daily.
 
-**What is not in this package.** The Python version in `jobhunter/` — SMTP email
+**What is not in this package.** The Python version in `jobora/` — SMTP email
 applications and IMAP reply tracking — stays out. A browser extension cannot do
 either, and shipping unused code invites questions.

@@ -24,6 +24,11 @@ const getJSON = async (url) =>
   (await request(url, { headers: { accept: "application/json" } })).json();
 
 const getText = async (url) => (await request(url)).text();
+/* Το res.text() αποκωδικοποιεί ΠΑΝΤΑ ως UTF-8, ό,τι κι αν δηλώνει ο server.
+   Οι παλιοί ελληνικοί ιστότοποι είναι σε windows-1253 και θα έβγαιναν
+   «����� ��� �� ordino» — οπότε διαβάζουμε bytes και αποκωδικοποιούμε εμείς. */
+const getTextIn = async (url, charset) =>
+  new TextDecoder(charset).decode(await (await request(url)).arrayBuffer());
 
 const postJSON = async (url, body) =>
   (await request(url, {
@@ -154,6 +159,13 @@ export function parseSalary(text) {
   return [build(m[2], m[3], m[4]), build(m[5], m[6], m[7]), currency, period];
 }
 
+/** «fysikotherapeftis-ria--athina2» → «Fysikotherapeftis ria athina». */
+const deslug = (s) => (s || "")
+  .replace(/\d+$/, "")
+  .replace(/[-_]+/g, " ")
+  .trim()
+  .replace(/^./, (c) => c.toUpperCase());
+
 function job(source, externalId, company, title, url, opts = {}) {
   const location = opts.location || "";
   let [smin, smax, currency, period] = opts.salary || [null, null, null, null];
@@ -163,8 +175,13 @@ function job(source, externalId, company, title, url, opts = {}) {
   }
   return {
     id: `${source}:${externalId}`,
-    source, company: (company || "Unknown").trim(), title: (title || "").trim(),
+    // Άγνωστος εργοδότης σημαίνει κενό, όχι «Unknown». Το δεύτερο είναι
+    // επινοημένο όνομα εταιρείας και εμφανιζόταν ως τέτοιο στις κάρτες.
+    source, company: (company || "").trim(), title: (title || "").trim(),
     location: location.trim(), description: opts.description || "", url,
+    // Μια εθνική πηγή ξέρει τη χώρα της ακόμα κι όταν η αγγελία γράφει μόνο
+    // «Νέα Φιλαδέλφεια». Χωρίς αυτό, όποιος έβαζε «Ελλάδα» δεν έβρισκε τίποτα.
+    country: opts.country || null,
     postedAt: opts.postedAt || null,
     remote: Boolean(opts.remote) || /remote|anywhere|worldwide/i.test(location),
     salaryMin: smin, salaryMax: smax,
@@ -283,20 +300,6 @@ export const ATS = {
 
 /* ── Aggregators: δουλεύουν χωρίς λίστα εταιρειών ──────────── */
 export const BOARDS = {
-  /** The Muse — δεκάδες χιλιάδες θέσεις, όχι μόνο remote, σε όλο τον κόσμο. */
-  async themuse(query) {
-    const pages = await Promise.all([0, 1, 2].map((p) =>
-      getJSON(`https://www.themuse.com/api/public/jobs?page=${p}&descending=true`)
-        .catch(() => ({ results: [] }))));
-    return pages.flatMap((d) => d.results || []).map((j) => job("themuse", j.id,
-      j.company?.name, j.name, j.refs?.landing_page || "", {
-      location: (j.locations || []).map((l) => l.name).join(", "),
-      description: stripHtml(j.contents),
-      postedAt: iso(j.publication_date),
-      remote: (j.locations || []).some((l) => /flexible|remote/i.test(l.name)),
-    })).filter((j) => j.url);
-  },
-
   /** We Work Remotely — RSS, ο τίτλος έχει μορφή «Εταιρεία: Θέση». */
   async weworkremotely() {
     const xml = await getText("https://weworkremotely.com/remote-jobs.rss");
@@ -497,8 +500,100 @@ export const BOARDS = {
 
       out.push(job("psf", `${postedAt || ""}|${title}`.slice(0, 90),
         brand ? brand[1] : "Φυσικοθεραπευτήριο", title, PAGE, {
-        location, description, postedAt,
+        location, description, postedAt, country: "greece",
       }));
+    }
+    return out;
+  },
+
+  /*
+   * Skywalker.gr — ο μεγαλύτερος ελληνικός πίνακας αγγελιών.
+   *
+   * Δεν έχει API, έχει όμως sitemap: τον μηχανισμό που υπάρχει ακριβώς για να
+   * τον διαβάζουν μηχανές. Το robots.txt τους τον δημοσιεύει και επιτρέπει τη
+   * διαδρομή των αγγελιών σε όλους. Κατεβάζουμε ΜΟΝΟ το τελευταίο αρχείο —
+   * εκεί προστίθενται οι καινούριες — και στέλνουμε τον χρήστη πίσω στη δική
+   * τους σελίδα. Καμία αγγελία δεν κατεβαίνει ξεχωριστά.
+   *
+   * Ο τίτλος βγαίνει από το slug, που είναι γραμμένο σε greeklish
+   * («fysikotherapeftis»). Γι' αυτό οι τίτλοι στο professions.js έχουν και
+   * greeklish ρίζες — αλλιώς δεν θα έπιανε τίποτα.
+   */
+  async skywalker(query, opts = {}) {
+    const index = await getText(
+      "https://www.skywalker.gr/sitemaps/index/sitemap-big-ads-index.xml");
+    const maps = [...index.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    if (!maps.length) return [];
+
+    const xml = await getText(maps[maps.length - 1]);
+    const cutoff = Date.now() - (opts.maxAgeDays || 60) * 86400000;
+    const out = [];
+
+    for (const m of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+      const url = /<loc>([^<]+)<\/loc>/.exec(m[1])?.[1];
+      const mod = /<lastmod>([^<]+)<\/lastmod>/.exec(m[1])?.[1];
+      // Κάθε αγγελία υπάρχει δύο φορές, /el/ και /en/ — κρατάμε τη μία.
+      if (!url || !mod || !url.includes("/el/aggelia-ergasias/")) continue;
+      const at = Date.parse(mod);
+      if (!at || at < cutoff) continue;
+
+      const parts = url.split("/");
+      const slug = decodeURIComponent(parts.pop() || "");
+      const id = parts.pop() || slug;
+      // Το slug είναι ολόκληρος ο τίτλος της αγγελίας — τα «---» είναι απλώς
+      // παύλες μέσα στον τίτλο («polites---politries» = «πωλητές - πωλήτριες»),
+      // όχι χωρίσματα πεδίων. Εργοδότη και περιοχή τα λέει μόνο η σελίδα τους.
+      const title = deslug(slug);
+      if (!title) continue;
+
+      out.push(job("skywalker", id, "", title, url, {
+        location: "Ελλάδα",
+        postedAt: new Date(at).toISOString(),
+        country: "greece",
+      }));
+    }
+    return out;
+  },
+
+  /*
+   * Ordino — ελληνικές αγγελίες casting: θέατρο, κινηματογράφος, τηλεόραση.
+   *
+   * Η σελίδα τους είναι δημόσια αλλά δείχνει μόνο τίτλο και ημερομηνία· τα
+   * υπόλοιπα θέλουν λογαριασμό στο ordino, δωρεάν για ηθοποιούς. Άρα εδώ δεν
+   * φέρνουμε αγγελία, φέρνουμε ειδοποίηση: «βγήκε ακρόαση, δες την». Κάθε
+   * κάρτα οδηγεί στη δική τους σελίδα, όπου γίνεται και η αίτηση.
+   *
+   * Τρεις σελίδες φτάνουν για δύο μήνες πίσω — δέκα αγγελίες η καθεμία.
+   */
+  async ordino(query, opts = {}) {
+    const BASE = "https://www.ordino.gr/ads/";
+    const ROW = /<td class="aggCell">[\s\S]*?<a href="(ad\.asp\?id=\d+)">([\s\S]*?)<\/a>[\s\S]*?<td class="dateCell">\s*(\d{1,2})\/(\d{1,2})\/(\d{4})([\s\S]*?)<\/td>/g;
+    const cutoff = Date.now() - (opts.maxAgeDays || 60) * 86400000;
+    const out = [];
+
+    for (const pg of [1, 2, 3]) {
+      const html = await getTextIn(`${BASE}ads.asp${pg > 1 ? `?pg=${pg}` : ""}`, "windows-1253");
+      for (const m of html.matchAll(ROW)) {
+        const title = stripHtml(m[2]);
+        // Το ordino αφήνει τις περασμένες ακροάσεις στη σελίδα και τις σημαδεύει
+        // στον τίτλο. Χωρίς αυτό, τα δύο τρίτα των ευρημάτων είναι ραντεβού που
+        // έχουν ήδη γίνει — και μια ληγμένη ακρόαση δεν είναι εύρημα.
+        if (!title || /\(ΕΧΕΙ ΛΗΞΕΙ\)/i.test(title)) continue;
+        const at = Date.UTC(+m[5], +m[4] - 1, +m[3]);
+        if (!at || at < cutoff) continue;
+
+        // Η σελίδα λέει η ίδια σε ποιον ανοίγει· ας το λέει και η κάρτα, αντί
+        // να το ανακαλύψει ο χρήστης αφού πατήσει.
+        const gated = /Μόνο για συνδρομητές/.test(m[6]);
+        out.push(job("ordino", m[1].replace(/\D/g, ""), "", title, BASE + m[1], {
+          location: "Ελλάδα",
+          country: "greece",
+          postedAt: new Date(at).toISOString(),
+          description: gated
+            ? "Οι λεπτομέρειες είναι μόνο για συνδρομητές του ordino."
+            : "Οι λεπτομέρειες είναι για όλα τα μέλη του ordino — η εγγραφή ηθοποιού είναι δωρεάν.",
+        }));
+      }
     }
     return out;
   },
@@ -509,6 +604,7 @@ export const BOARDS = {
       .map((j) => job("devitjobs", j._id, j.company, j.name,
         `https://devitjobs.uk/jobs/${j.jobUrl}`, {
         location: [j.actualCity || j.cityCategory, "UK"].filter(Boolean).join(", "),
+        country: "uk",
         description: [j.jobType, j.expLevel, (j.technologies || []).join(", ")]
           .filter(Boolean).join(" · "),
         postedAt: iso(j.activeFrom),

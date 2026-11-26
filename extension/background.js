@@ -1,5 +1,5 @@
 /*
- * Service worker — η «μηχανή» του JobHunter.
+ * Service worker — η «μηχανή» του Jobora.
  *
  * • Καθημερινό αυτόματο scan (chrome.alarms) με ειδοποίηση για νέα matches
  * • Badge με τον αριθμό των matches
@@ -13,7 +13,11 @@ import { pickCompanies } from "./lib/companies.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, t } from "./lib/i18n.js";
 
-const ALARM = "jobhunter-daily";
+const ALARM = "jobora-daily";
+// Το προηγούμενο όνομα του προϊόντος ζει ακόμη σε ένα χρονόμετρο που έφτιαξε
+// μια παλιότερη εγκατάσταση. Δεν ταιριάζει πια με κανέναν ακροατή, οπότε θα
+// χτυπούσε για πάντα χωρίς να κάνει τίποτα. Το σβήνουμε μία φορά.
+chrome.alarms.clear("jobhunter-daily");
 let scanning = false;
 
 /* ── Μεταφορά ρυθμίσεων σε ενημερώσεις ────────────────────────
@@ -26,6 +30,8 @@ const MIGRATIONS = [
   { version: 2, boards: ["themuse", "weworkremotely", "landingjobs", "cryptojobs"] },
   { version: 3, boards: ["devitjobs", "adzuna"] },
   { version: 4, boards: ["psf"] },
+  { version: 5, boards: ["skywalker"] },
+  { version: 6, boards: ["ordino"] },
 ];
 const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
@@ -48,9 +54,15 @@ async function migrate() {
   return added;
 }
 
-migrate().then((added) => {
-  if (added?.length) console.info(`JobHunter: added new job boards — ${added.join(", ")}`);
-});
+/* Κρατάμε την υπόσχεση, δεν την πετάμε. Ο service worker ξυπνάει τη στιγμή που
+   πατάς «Αναζήτηση» — αν η σάρωση διαβάσει το profile πριν προλάβει να γραφτεί
+   η μεταφορά, τρέχει με τις παλιές πηγές και δεν βρίσκει τίποτα. Έχει ξανασυμβεί:
+   είναι ακριβώς η πρώτη σάρωση μετά από ενημέρωση, δηλαδή η μόνη που κοιτάς. */
+const migrated = migrate()
+  .then((added) => {
+    if (added?.length) console.info(`Jobora: added new job boards — ${added.join(", ")}`);
+  })
+  .catch((e) => console.warn("Jobora: migration failed —", e));
 
 /* ── Lifecycle ────────────────────────────────────────────── */
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -81,7 +93,8 @@ async function refreshBadge() {
 }
 
 /* ── Matches ──────────────────────────────────────────────── */
-async function currentMatches() {
+async function currentMatches(tally = null) {
+  await migrated;
   await refreshRates();
   const [profile, jobs, apps, state] = await Promise.all([
     store.getProfile(), store.getJobs(), store.getApps(), store.getState(),
@@ -89,6 +102,7 @@ async function currentMatches() {
   return rankJobs(jobs, profile, {
     dismissed: state.dismissed || [],
     appliedIds: apps.map((a) => a.jobId),
+    tally,
   });
 }
 
@@ -99,6 +113,7 @@ async function runScan({ silent = false } = {}) {
   const started = Date.now();
 
   try {
+    await migrated;
     const profile = await store.getProfile();
     const targets = profile.targets?.length ? profile.targets : pickCompanies(profile.industries);
     const sources = [];
@@ -106,6 +121,7 @@ async function runScan({ silent = false } = {}) {
     const jobs = await fetchAll(targets, profile.boards, "", (label, count, error) => {
       sources.push({ label, count, error });
     }, {
+      maxAgeDays: profile.maxAgeDays,
       adzuna: {
         appId: profile.adzunaAppId,
         appKey: profile.adzunaKey,
@@ -114,7 +130,8 @@ async function runScan({ silent = false } = {}) {
     });
 
     const { added, total } = await store.mergeJobs(jobs);
-    const matches = await currentMatches();
+    const tally = new Map();
+    const matches = await currentMatches(tally);
 
     const history = (await store.getState()).history || [];
     history.push({ at: new Date().toISOString(), seen: jobs.length, added, matches: matches.length });
@@ -143,9 +160,14 @@ async function runScan({ silent = false } = {}) {
       }
     }
 
+    // Χωρίς ευρήματα, ο πιο συχνός λόγος απόρριψης είναι πιο χρήσιμος από
+    // οποιονδήποτε αριθμό: σχεδόν πάντα δείχνει ποιο φίλτρο φταίει.
+    const [topReject] = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+
     return {
       ok: true, seen: jobs.length, added, total,
       matches: matches.length, sources,
+      why: matches.length || !topReject ? null : { kind: topReject[0], count: topReject[1] },
       seconds: Math.round((Date.now() - started) / 1000),
     };
   } catch (e) {

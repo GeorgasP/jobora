@@ -83,7 +83,8 @@ const stageName = (key) => t(`stage.${key}`);
 // Τα ακρωνύμια θέλουν χειροκίνητη γραφή· στα υπόλοιπα αρκεί κεφαλαίο αρχικό.
 // Οι όροι του Adzuna ζητούν κάθε αγγελία τους να φέρει «Jobs by Adzuna».
 // Είναι το τίμημα του δωρεάν κλειδιού και είναι δίκαιο: τα δεδομένα δικά τους.
-const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs" };
+const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs",
+                        skywalker: "Skywalker.gr", psf: "ΠΣΦ", ordino: "Ordino" };
 const sourceLabel = (s) => SOURCE_LABELS[s] || s;
 
 const INDUSTRY_LABELS = { ai: "AI", hr: "HR", saas: "SaaS", fintech: "Fintech" };
@@ -109,7 +110,9 @@ const ago = (iso) => {
 };
 
 /* ── Load ─────────────────────────────────────────────────── */
-async function load() {
+// forms:false όταν η αποθήκευση έγινε αυτόματα — αν ξαναγράψουμε τα πεδία
+// ενώ πληκτρολογεί κάποιος, ο δρομέας πετάγεται στο τέλος της λέξης.
+async function load({ forms = true } = {}) {
   await refreshRates();
   [profile, apps, state] = await Promise.all([store.getProfile(), store.getApps(), store.getState()]);
   const res = await send({ type: "matches" });
@@ -130,14 +133,14 @@ async function load() {
     }
   }
 
-  const initials = (profile.name || "?").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-  $("#avatar").textContent = initials || "?";
+  $("#avatar").innerHTML = profile.photo
+    ? `<img src="${esc(profile.photo)}" alt="">` : esc(initialsOf(profile.name));
   $("#who-name").textContent = profile.name || t("nav.notSetUp");
-  // Χωρίς όνομα, το πλαίσιο είναι αδιέξοδο: ας οδηγεί εκεί που συμπληρώνεται.
+  // Το πλαίσιο είναι η συντομότερη διαδρομή προς το προφίλ — και όταν λείπει
+  // το όνομα, είναι το μόνο σημείο που δείχνει ότι κάτι λείπει.
   const who = $(".who");
   who.classList.toggle("needs-setup", !profile.name);
-  who.onclick = profile.name ? null
-    : () => $$(".nav-item").find((a) => a.dataset.v === "settings")?.click();
+  who.onclick = () => goTo("profile");
   const jobs = allJobs;
   $("#who-sub").textContent = t("nav.jobsTracked", { count: jobs.length });
   $("#nav-matches").textContent = matches.length;
@@ -147,7 +150,36 @@ async function load() {
   renderStats(jobs.length);
   renderCards();
   renderBoard();
-  fillSettings();
+  if (forms) fillSettings();
+}
+
+const initialsOf = (name) =>
+  (name || "?").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+
+const goTo = (view) => $$(".nav-item").find((a) => a.dataset.v === view)?.click();
+
+function renderProfileCard() {
+  const img = $("#photo-img");
+  if (!img) return;
+  img.src = profile.photo || "";
+  $("#pphoto").classList.toggle("has", Boolean(profile.photo));
+  $("#photo-initials").textContent = initialsOf(profile.name);
+  $("#photo-clear").disabled = !profile.photo;
+  $("#p-name").textContent = profile.name || t("nav.notSetUp");
+  $("#p-headline").textContent = profile.headline || "";
+}
+
+/* Μια φωτογραφία από κινητό είναι 4 MB· ο χώρος του chrome.storage δεν είναι.
+   Την κόβουμε τετράγωνη στα 256 και τη σώζουμε ως JPEG — γύρω στα 15 KB. */
+async function shrinkPhoto(file, size = 256) {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  canvas.getContext("2d").drawImage(
+    bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  bitmap.close?.();
+  return canvas.toDataURL("image/jpeg", 0.85);
 }
 
 function renderStats(jobCount) {
@@ -182,6 +214,21 @@ function visibleMatches() {
   });
 }
 
+/* Εταιρεία, τοποθεσία, πηγή — με τελείες ανάμεσα, αλλά μόνο σε ό,τι υπάρχει.
+   Οι αγγελίες από sitemap δεν λένε εργοδότη, και μια κενή κουκκίδα δείχνει
+   σαν να έλειψε κάτι κατά το φόρτωμα. */
+function metaLine(m) {
+  const parts = [];
+  // Το «Unknown» είναι κατάλοιπο: οι ήδη κατεβασμένες αγγελίες το κουβαλούν
+  // μέχρι την επόμενη σάρωση, που τις ξαναγράφει σωστά.
+  if (m.company && m.company !== "Unknown") {
+    parts.push(`<span class="co">${esc(m.company)}</span>`);
+  }
+  if (m.location) parts.push(esc(m.location));
+  parts.push(`<span class="src">${esc(sourceLabel(m.source))}</span>`);
+  return parts.join('<i class="dot"></i>');
+}
+
 function renderCards() {
   const list = visibleMatches().slice(0, 100);
   $("#count").textContent = t("filter.showing", { shown: list.length, total: matches.length });
@@ -200,9 +247,7 @@ function renderCards() {
       <div class="ring" style="--p:${m.score};--ring:${ringColor(m.score)}"><b>${m.score}</b></div>
       <div>
         <h3><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a></h3>
-        <div class="meta"><span class="co">${esc(m.company)}</span>
-          ${m.location ? `<i class="dot"></i>${esc(m.location)}` : ""}
-          <i class="dot"></i><span class="src">${esc(sourceLabel(m.source))}</span></div>
+        <div class="meta">${metaLine(m)}</div>
         <div class="chips">${(m.chips || []).map((c) => `<span class="chip ${c.kind}">${esc(c.text)}</span>`).join("")}</div>
         <div class="acts">
           <button class="btn primary" data-act="apply">${esc(t("cards.apply"))}</button>
@@ -220,7 +265,7 @@ function renderBoard() {
       <div class="col-h" style="--c:${st.color}"><i></i>${esc(stageName(st.key))}<span>${items.length}</span></div>
       ${items.length ? items.map((a) => `
         <div class="tile" draggable="true" data-app="${a.id}">
-          <b>${esc(a.title)}</b><div class="co">${esc(a.company)}</div>
+          <b>${esc(a.title)}</b><div class="co">${esc(a.company || sourceLabel(a.source))}</div>
           <div class="f"><span class="tag">${esc(a.method)}</span>${new Date(a.preparedAt).toLocaleDateString()}</div>
         </div>`).join("") : `<div class="col-empty">${esc(t("board.empty"))}</div>`}
     </div>`;
@@ -255,7 +300,7 @@ async function openDrawer(id) {
   $("#drawer-body").innerHTML = `
     <button class="btn" id="close-drawer" style="margin-bottom:16px">${esc(t("drawer.back"))}</button>
     <h2>${esc(app.title)}</h2>
-    <div class="meta">${esc(app.company)}${app.location ? " · " + esc(app.location) : ""} ·
+    <div class="meta">${esc(app.company || sourceLabel(app.source))}${app.location ? " · " + esc(app.location) : ""} ·
       <a href="${esc(app.url)}" target="_blank" rel="noopener">${esc(t("drawer.viewPosting"))}</a></div>
     <div class="acts" style="margin:18px 0">
       ${STAGES.map((s) => `<button class="btn ${app.status === s.key ? "primary" : ""}" data-stage="${s.key}">${esc(stageName(s.key))}</button>`).join("")}
@@ -295,20 +340,60 @@ const VOCAB_FOR = {
 
 const tagValues = (name) => (fields[name] ? fields[name].values : []);
 
+/* Ένα <select> πετάει σιωπηλά κάθε τιμή που δεν είναι στη λίστα του. Όποιος
+   είχε γράψει «45 μέρες» όσο το πεδίο ήταν ελεύθερο θα το έχανε χωρίς να το
+   καταλάβει — οπότε η δική του τιμή γίνεται κι αυτή επιλογή. */
+function ensureOption(select, value) {
+  if (!select || !value) return;
+  if ([...select.options].some((o) => o.value === value)) return;
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = value;
+  select.insertBefore(opt, select.firstChild);
+}
+
+/* Το «πού μένεις» δεν μπορεί να είναι κλειστή λίστα — η εφαρμογή δουλεύει
+   παντού. Είναι λίστα προτάσεων: γράφεις ό,τι θέλεις, αλλά οι τοποθεσίες που
+   εμφανίζονται όντως στις αγγελίες που κατέβηκαν προτείνονται πρώτες. */
+function fillLocationOptions() {
+  const dl = $("#location-options");
+  if (!dl) return;
+  const names = [...(profile.locations || []), ...vocab.locations.map((l) => l.label)];
+  const seen = new Set();
+  const list = names.filter((n) => {
+    const key = String(n || "").trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 150);
+  dl.innerHTML = list.map((n) => `<option value="${esc(n)}"></option>`).join("");
+}
+
 async function fillSettings() {
   for (const key of ["titles", "locations", "blockedLocations", "excludeKeywords",
                      "adzunaCountries"]) {
     const box = document.querySelector(`[data-tags="${key}"]`);
     if (!fields[key]) {
-      fields[key] = createTagField(box, { values: profile[key] || [], vocabulary: VOCAB_FOR[key] });
+      fields[key] = createTagField(box, {
+        values: profile[key] || [], vocabulary: VOCAB_FOR[key],
+        onChange: () => scheduleSave(),
+      });
     } else {
       fields[key].values = profile[key] || [];
     }
   }
 
+  // Τα δύο πεδία που έγιναν λίστες μπορεί να κρατούν ό,τι έγραψε κάποιος όσο
+  // ήταν ελεύθερο κείμενο. Το βάζουμε στη λίστα πριν το επιλέξουμε.
+  ensureOption($("#workAuthorization"), profile.workAuthorization);
+  ensureOption($("#noticePeriod"), profile.noticePeriod);
+  fillLocationOptions();
+
   ["name", "email", "phone", "location", "linkedin", "workAuthorization",
-   "noticePeriod", "language", "experienceLevel", "anthropicKey", "salaryCurrency"]
+   "noticePeriod", "language", "experienceLevel", "anthropicKey", "salaryCurrency",
+   "headline", "about"]
     .forEach((k) => { if ($("#" + k)) $("#" + k).value = profile[k] ?? ""; });
+  renderProfileCard();
   $("#salaryMin").value = profile.salaryMin ?? "";
   $("#minScore").value = profile.minScore ?? 55;
   $("#maxAgeDays").value = profile.maxAgeDays ?? 60;
@@ -321,18 +406,59 @@ async function fillSettings() {
 
   fillLanguageSelect(currentLanguage());
 
-  const cv = await store.getCV();
-  if (cv) {
-    $("#cvbox").classList.add("has");
-    $("#cv-name").textContent = cv.filename;
-    $("#cv-sub").textContent = cv.text
-      ? t("settings.cv.read", { kb: Math.round(cv.size / 1024), chars: cv.text.length.toLocaleString() })
-      : t("settings.cv.unreadable", { kb: Math.round(cv.size / 1024) });
-    $("#cv-pick").textContent = t("settings.cv.replace");
-  }
+  renderCvBox(await store.getCV());
 }
 
+/* Και οι δύο καταστάσεις σε ένα σημείο. Πριν υπήρχε μόνο η «έχει βιογραφικό»,
+   που φτάνει όσο το βιογραφικό δεν φεύγει ποτέ — τώρα φεύγει. */
+function renderCvBox(cv) {
+  $("#cvbox").classList.toggle("has", Boolean(cv));
+  $("#cv-clear").hidden = !cv;
+  $("#cv-pick").textContent = t(cv ? "settings.cv.replace" : "settings.cv.upload");
+  $("#cv-name").textContent = cv ? cv.filename : t("settings.cv.none");
+  if (!cv) {
+    $("#cv-sub").textContent = t("settings.cv.formats");
+    return;
+  }
+  $("#cv-sub").textContent = cv.text
+    ? t("settings.cv.read", { kb: Math.round(cv.size / 1024), chars: cv.text.length.toLocaleString() })
+    : t("settings.cv.unreadable", { kb: Math.round(cv.size / 1024) });
+}
+
+const pickPhoto = () => $("#photo-file").click();
+$("#photo-pick").onclick = pickPhoto;
+$("#photo-upload").onclick = pickPhoto;
+
+$("#photo-file").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    profile = await store.saveProfile({ photo: await shrinkPhoto(file) });
+    renderProfileCard();
+    $("#avatar").innerHTML = `<img src="${esc(profile.photo)}" alt="">`;
+    toast(t("profile.photo.saved"), "ok");
+  } catch (err) {
+    toast(t("profile.photo.failed", { error: String(err.message || err) }), "bad");
+  }
+  e.target.value = "";
+};
+
+$("#photo-clear").onclick = async () => {
+  profile = await store.saveProfile({ photo: "" });
+  renderProfileCard();
+  $("#avatar").innerHTML = esc(initialsOf(profile.name));
+};
+
 $("#cv-pick").onclick = () => $("#cv-file").click();
+
+/* Το βιογραφικό φεύγει, τα στοιχεία που συμπλήρωσε μένουν: το όνομα και το
+   τηλέφωνό σου δεν παύουν να ισχύουν επειδή άλλαξες αρχείο. */
+$("#cv-clear").onclick = async () => {
+  await store.deleteCV();
+  $("#cv-file").value = "";
+  renderCvBox(null);
+  toast(t("settings.cv.removed"), "ok");
+};
 $("#cv-file").onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -356,7 +482,11 @@ $("#cv-file").onchange = async (e) => {
   }
 };
 
-$("#save").onclick = async () => {
+/* ── Αυτόματη αποθήκευση ρυθμίσεων ─────────────────────────
+   Κανείς δεν θέλει να θυμάται να πατήσει «Αποθήκευση» για να ισχύσει αυτό που
+   μόλις πληκτρολόγησε. Γράφουμε μόλις σταματήσει να πληκτρολογεί — και μόνο
+   τότε ξαναβαθμολογούμε, γιατί περνάει χιλιάδες αγγελίες. */
+function collectSettings() {
   const industries = $$("#industries .pick.on").map((p) => p.dataset.i);
   const patch = {
     titles: tagValues("titles"),
@@ -371,18 +501,59 @@ $("#save").onclick = async () => {
   };
   ["name", "email", "phone", "location", "linkedin", "workAuthorization",
    "noticePeriod", "language", "experienceLevel", "anthropicKey", "salaryCurrency",
-   "adzunaAppId", "adzunaKey"]
-    .forEach((k) => { patch[k] = $("#" + k).value.trim(); });
+   "adzunaAppId", "adzunaKey", "headline", "about"]
+    .forEach((k) => { if ($("#" + k)) patch[k] = $("#" + k).value.trim(); });
   // Οι κωδικοί χωρών είναι δύο γράμματα, πεζά — «GR» και «gr» είναι το ίδιο.
   patch.adzunaCountries = tagValues("adzunaCountries")
     .map((c) => c.trim().toLowerCase()).filter((c) => /^[a-z]{2}$/.test(c));
   $$("[data-tog]").forEach((el) => { patch[el.dataset.tog] = el.classList.contains("on"); });
+  return patch;
+}
 
-  profile = await store.saveProfile(patch);
+let saveTimer = null;
+let savedAt = null;
+
+function setSaveState(text) {
+  $$(".save-state").forEach((el) => { el.textContent = text; });
+}
+
+async function commitSettings() {
+  profile = await store.saveProfile(collectSettings());
   await send({ type: "refreshBadge" });
-  await load();
-  toast(t("settings.saved"), "ok");
-};
+  await load({ forms: false });
+  setSaveState(t("settings.savedAuto"));
+  clearTimeout(savedAt);
+  savedAt = setTimeout(() => setSaveState(""), 2500);
+}
+
+function scheduleSave() {
+  setSaveState(t("settings.saving"));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(commitSettings, 800);
+}
+
+function watchSettings() {
+  ["#v-settings", "#v-profile"].forEach((sel) => watchView($(sel)));
+}
+
+function watchView(view) {
+  if (!view) return;
+  view.addEventListener("input", (e) => {
+    // Ο επιλογέας γλώσσας έχει δικό του χειριστή που φορτώνει λεξικά.
+    if (e.target.id === "uiLanguage") return;
+    scheduleSave();
+  });
+  view.addEventListener("change", (e) => {
+    if (e.target.id === "uiLanguage") return;
+    scheduleSave();
+  });
+  // Οι διακόπτες και οι κλάδοι δεν στέλνουν input/change.
+  view.addEventListener("click", (e) => {
+    if (e.target.closest("[data-tog]:not(#tog-social)") || e.target.closest("#industries .pick")) {
+      scheduleSave();
+    }
+  });
+}
 
 $$("[data-tog]").forEach((el) => el.onclick = () => el.classList.toggle("on"));
 
@@ -432,15 +603,29 @@ $("#scan").onclick = async () => {
   btn.disabled = false;
   btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg> Scan now`;
   if (!res?.ok) return toast(res?.error || t("toast.scanFailed"), "bad");
-  const failed = (res.sources || []).filter((s) => s.error).length;
+  // «1 πηγή δεν απάντησε» δεν βοηθάει κανέναν να καταλάβει τι λείπει —
+  // το όνομα και το σφάλμα το κάνουν.
+  const failed = (res.sources || []).filter((s) => s.error);
+  // Μηδέν ευρήματα χωρίς εξήγηση είναι το χειρότερο μήνυμα που μπορεί να δει
+  // κανείς: μοιάζει με χαλασμένη εφαρμογή, ενώ φταίει ένα φίλτρο.
+  const why = res.why
+    ? t("toast.scanWhy", { n: res.why.count, reason: t(`reject.${res.why.kind}`) })
+    : "";
   toast(t("toast.scanDone", { seen: res.seen, added: res.added, seconds: res.seconds, matches: res.matches })
-        + (failed ? t("toast.scanSourcesFailed", { n: failed }) : ""), "ok");
+        + why
+        + (failed.length
+            ? t("toast.scanSourcesFailed", {
+                n: failed.length,
+                which: failed.slice(0, 3).map((s) => `${s.label} (${s.error})`).join(", "),
+              })
+            : ""), failed.length || res.why ? "warn" : "ok");
   await load();
 };
 
 const TITLES = {
   matches: () => [t("nav.matches"), t("header.matches.sub", { count: matches.length, when: ago(state.lastScan) })],
   pipeline: () => [t("nav.pipeline"), t("header.pipeline.sub", { count: apps.length })],
+  profile: () => [t("nav.profile"), t("header.profile.sub")],
   settings: () => [t("nav.settings"), t("header.settings.sub")],
 };
 
@@ -577,6 +762,7 @@ store.getProfile().then(async (p) => {
   if (!p.uiLanguage) await store.saveProfile({ uiLanguage: active });
   fillLanguageSelect(active);
   setupSocialToggle();
+  watchSettings();
   if (!(await store.isOnboarded())) location.href = "onboarding.html";
   else {
     setupCvDragAndDrop();

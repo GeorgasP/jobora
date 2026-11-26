@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "JobHunter — automatic job search",
-  "version": "1.0.0",
+  "name": "Jobora — automatic job search",
+  "version": "1.1.0",
   "description": "Finds jobs that match you every day and fills in the application forms for you. Your CV never leaves your browser.",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -25,7 +25,6 @@
     "https://jobicy.com/*",
     "https://himalayas.app/*",
     "https://www.workingnomads.com/*",
-    "https://www.themuse.com/*",
     "https://weworkremotely.com/*",
     "https://cryptocurrencyjobs.co/*",
     "https://landing.jobs/*",
@@ -36,6 +35,8 @@
     "https://devitjobs.uk/*",
     "https://jobs.smartrecruiters.com/*",
     "https://www.psf.org.gr/*",
+    "https://www.skywalker.gr/*",
+    "https://www.ordino.gr/*",
     "https://open.er-api.com/*",
     "https://api.anthropic.com/*"
   ],
@@ -45,7 +46,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "JobHunter"
+    "default_title": "Jobora"
   },
   "options_page": "app.html",
   "content_scripts": [
