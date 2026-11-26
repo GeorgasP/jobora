@@ -76,6 +76,7 @@
   "settings.exclude": "Parole che escludono un annuncio",
   "settings.salaryMin": "Stipendio annuo minimo",
   "settings.salaryMin.ph": "facoltativo",
+  "settings.salaryMin.invalid": "Inserisci zero o un numero intero positivo, oppure lascia il campo vuoto.",
   "settings.salaryMin.help": "Gli stipendi in altre valute vengono convertiti prima del confronto: su ogni annuncio resta la valuta usata dal datore di lavoro.",
   "settings.experience": "Livello di esperienza",
   "settings.experience.entry": "iniziale",

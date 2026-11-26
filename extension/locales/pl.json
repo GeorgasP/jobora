@@ -76,6 +76,7 @@
   "settings.exclude": "Słowa, które wykluczają ofertę",
   "settings.salaryMin": "Minimalne roczne wynagrodzenie",
   "settings.salaryMin.ph": "opcjonalne",
+  "settings.salaryMin.invalid": "Wpisz zero lub dodatnią liczbę całkowitą albo pozostaw to pole puste.",
   "settings.salaryMin.help": "Wynagrodzenia w innych walutach są przeliczane przed porównaniem — przy każdej ofercie widzisz walutę użytą przez pracodawcę.",
   "settings.experience": "Poziom doświadczenia",
   "settings.experience.entry": "początkujący",

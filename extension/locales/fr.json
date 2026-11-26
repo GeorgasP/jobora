@@ -76,6 +76,7 @@
   "settings.exclude": "Mots qui excluent une offre",
   "settings.salaryMin": "Salaire annuel minimum",
   "settings.salaryMin.ph": "facultatif",
+  "settings.salaryMin.invalid": "Saisissez zéro ou un nombre entier positif, ou laissez ce champ vide.",
   "settings.salaryMin.help": "Les salaires dans d'autres devises sont convertis avant comparaison — chaque offre reste affichée dans la devise de l'employeur.",
   "settings.experience": "Niveau d'expérience",
   "settings.experience.entry": "débutant",

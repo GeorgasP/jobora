@@ -76,6 +76,7 @@
   "settings.exclude": "Wörter, die eine Stelle ausschließen",
   "settings.salaryMin": "Mindestjahresgehalt",
   "settings.salaryMin.ph": "optional",
+  "settings.salaryMin.invalid": "Gib null oder eine positive ganze Zahl ein oder lass das Feld leer.",
   "settings.salaryMin.help": "Gehälter in anderen Währungen werden vor dem Vergleich umgerechnet — angezeigt wird die Währung des Arbeitgebers.",
   "settings.experience": "Erfahrungsstufe",
   "settings.experience.entry": "Einstieg",

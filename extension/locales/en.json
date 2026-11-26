@@ -76,6 +76,7 @@
   "settings.exclude": "Keywords that disqualify a job",
   "settings.salaryMin": "Minimum yearly salary",
   "settings.salaryMin.ph": "optional",
+  "settings.salaryMin.invalid": "Enter zero or a positive whole number, or leave this blank.",
   "settings.salaryMin.help": "Salaries in other currencies are converted before comparing — what you see on each job stays in the currency the employer used.",
   "settings.experience": "Experience level",
   "settings.experience.entry": "entry",

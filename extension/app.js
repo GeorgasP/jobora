@@ -397,6 +397,7 @@ async function fillSettings() {
     .forEach((k) => { if ($("#" + k)) $("#" + k).value = profile[k] ?? ""; });
   renderProfileCard();
   $("#salaryMin").value = profile.salaryMin ?? "";
+  validateSalaryMin();
   $("#minScore").value = profile.minScore ?? 55;
   $("#maxAgeDays").value = profile.maxAgeDays ?? 60;
 
@@ -497,7 +498,7 @@ function collectSettings() {
     excludeKeywords: tagValues("excludeKeywords"),
     industries,
     targets: pickCompanies(industries),
-    salaryMin: parseInt($("#salaryMin").value, 10) || null,
+    salaryMin: $("#salaryMin").valueAsNumber || null,
     minScore: parseInt($("#minScore").value, 10) || 55,
     maxAgeDays: parseInt($("#maxAgeDays").value, 10) || 60,
   };
@@ -519,7 +520,19 @@ function setSaveState(text) {
   $$(".save-state").forEach((el) => { el.textContent = text; });
 }
 
+function validateSalaryMin() {
+  const input = $("#salaryMin");
+  const valid = input.validity.valid && (!input.value || Number.isSafeInteger(input.valueAsNumber));
+  input.setAttribute("aria-invalid", String(!valid));
+  $("#salaryMin-error").hidden = valid;
+  return valid;
+}
+
 async function commitSettings() {
+  if (!validateSalaryMin()) {
+    setSaveState("");
+    return;
+  }
   profile = await store.saveProfile(collectSettings());
   await send({ type: "refreshBadge" });
   await load({ forms: false });
@@ -529,8 +542,12 @@ async function commitSettings() {
 }
 
 function scheduleSave() {
-  setSaveState(t("settings.saving"));
   clearTimeout(saveTimer);
+  if (!validateSalaryMin()) {
+    setSaveState("");
+    return;
+  }
+  setSaveState(t("settings.saving"));
   saveTimer = setTimeout(commitSettings, 800);
 }
 
