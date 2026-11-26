@@ -7,7 +7,7 @@ Budget 20 minutes. Anything that fails, send me the exact error.
 ## Load it
 
 1. `chrome://extensions` → **Developer mode** on → **Load unpacked**
-2. Select `C:\Users\Panos\Desktop\JobHunt\extension`
+2. Select the `extension` folder inside your copy of the repository
 3. The extension card appears with the target icon and **no red "Errors" button**
 
 > A red *Errors* button means the service worker failed to start — usually an
