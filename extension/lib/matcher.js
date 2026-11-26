@@ -6,6 +6,7 @@
 
 import { annualIn } from "./fx.js";
 import { aliasesFor } from "./professions.js";
+import { fold, placesIn, regionsOf, regionsOverlap, resolvePlace } from "./places.js";
 
 const W = { title: 40, location: 25, industry: 10, language: 10, fresh: 10, salary: 5 };
 
@@ -45,34 +46,6 @@ function jobLevel(title, description) {
   if (years >= 3) return "mid";
   return "entry";
 }
-
-const GLOBAL_WORDS = ["worldwide", "anywhere", "global", "fully remote"];
-const REMOTE_WORDS = ["remote", "anywhere", "worldwide", "work from home", "distributed"];
-
-const REGION_ALIASES = {
-  eu: ["eu", "europe", "european", "emea"],
-  europe: ["europe", "european", "eu", "emea"],
-  emea: ["emea", "europe", "middle east", "africa"],
-  us: ["us", "usa", "u.s.", "united states", "america"],
-  usa: ["usa", "us", "u.s.", "united states"],
-  uk: ["uk", "united kingdom", "england", "britain", "london"],
-  uae: ["uae", "united arab emirates", "dubai", "abu dhabi"],
-  apac: ["apac", "asia", "asia-pacific", "asia pacific"],
-  latam: ["latam", "latin america", "south america"],
-  anz: ["anz", "australia", "new zealand"],
-  greece: ["greece", "ελλάδα", "ελλας", "ελλάς", "hellas", "athens", "αθήνα",
-           "athina", "thessaloniki", "θεσσαλονίκη", "thessalonik", "gr"],
-  ελλάδα: ["greece", "ελλάδα", "ελλας", "ελλάς", "hellas", "athens", "αθήνα",
-           "thessaloniki", "θεσσαλονίκη"],
-  αθήνα: ["αθήνα", "athina", "athens", "αττικ", "attik"],
-  θεσσαλονίκη: ["θεσσαλονίκη", "thessalonik", "salonica"],
-  germany: ["germany", "deutschland", "berlin", "münchen", "munich", "hamburg", "de"],
-  spain: ["spain", "españa", "madrid", "barcelona", "es"],
-  italy: ["italy", "italia", "rome", "roma", "milan", "milano", "it"],
-  france: ["france", "paris", "lyon", "fr"],
-  netherlands: ["netherlands", "nederland", "amsterdam", "rotterdam", "nl"],
-  poland: ["poland", "polska", "warsaw", "warszawa", "pl"],
-};
 
 const LANGUAGE_SIGNALS = {
   el: ["greek", "ελλην", "greece", "athens"],
@@ -128,26 +101,94 @@ function ageDays(postedAt) {
   return isNaN(t) ? null : (Date.now() - t) / 86400000;
 }
 
-function locationHits(location, wanted, country = null, title = "") {
-  const hits = [];
-  for (const loc of wanted) {
-    const low = loc.trim().toLowerCase();
-    if (!low) continue;
-    if (REMOTE_WORDS.includes(low)) {
-      if (REMOTE_WORDS.some((w) => location.includes(w))) hits.push("Remote");
-      continue;
-    }
-    const variants = REGION_ALIASES[low] || [low];
-    // Η χώρα της πηγής μετράει όσο και το κείμενο της αγγελίας: ένα αγγελτήριο
-    // για την Κερατέα δεν γράφει «Ελλάδα», αλλά στην Ελλάδα είναι. Και ο τίτλος
-    // μετράει: πολλοί ελληνικοί πίνακες γράφουν την περιοχή μέσα στον τίτλο και
-    // αφήνουν το πεδίο τοποθεσίας κενό.
-    if (variants.some((v) => location.includes(v) || title.includes(v)
-                             || (country && country.includes(v)))) {
-      hits.push(loc);
-    }
+/* ── Where a job is, and whether the user wants to work there ── */
+
+const union = (a, b) => ({
+  countries: new Set([...a.countries, ...b.countries]),
+  cities: new Set([...a.cities, ...b.cities]),
+  regions: new Set([...a.regions, ...b.regions]),
+  global: a.global || b.global,
+  remote: a.remote || b.remote,
+});
+
+/**
+ * The places a job names. `where` comes from its location and from the
+ * source's country (a Greek board knows its ads are in Greece even when one
+ * says only "Κερατέα"). `inTitle` comes from the title, because Greek boards
+ * often write the area there ("Ζητείται φυσικοθεραπευτής, περιοχή Αθήνας").
+ */
+function placesOfJob(job) {
+  return {
+    where: union(placesIn(job.location || ""), placesIn(job.country || "")),
+    inTitle: placesIn(job.title || "", { namesOnly: true }),
+  };
+}
+
+const userPlacesCache = new WeakMap();
+
+/**
+ * What the user's locations mean, worked out once per profile: the places
+ * they want, the places they blocked, and where they are. Where they are is
+ * the countries they named plus the country of their own address, and it
+ * decides which remote jobs are open to them.
+ */
+function placesOfUser(profile) {
+  if (userPlacesCache.has(profile)) return userPlacesCache.get(profile);
+
+  const resolve = (typed = []) => typed.map(resolvePlace).filter((place) => place.label)
+    .map((place) => (place.kind === "text"
+      ? { ...place, pattern: new RegExp(`(?<![\\p{L}\\p{N}])${esc(place.text)}(?![\\p{L}\\p{N}])`, "u") }
+      : place));
+  const wanted = resolve(profile.locations);
+  const homeCountries = new Set(wanted.map((place) => place.country).filter(Boolean));
+  for (const country of placesIn(profile.location || "").countries) homeCountries.add(country);
+
+  const user = {
+    wanted,
+    blocked: resolve(profile.blockedLocations),
+    homeCountries,
+    homeRegions: [...homeCountries].flatMap(regionsOf),
+    wantedRegions: wanted.filter((place) => place.kind === "region").map((place) => place.region),
+  };
+  userPlacesCache.set(profile, user);
+  return user;
+}
+
+const isRemoteJob = (job, where) => Boolean(job.remote) || where.remote;
+
+const inRegion = (region, places) =>
+  [...places.regions].some((r) => regionsOverlap(r, region)) ||
+  [...places.countries].some((country) => regionsOf(country).includes(region));
+
+/**
+ * Whether a remote job is open to the user. A remote job that names no place,
+ * or says worldwide, is open to everyone. One that names places ("Remote -
+ * Canada", "Remote (Europe)") is open to people in those places only. When we
+ * don't know where the user is, we can't tell, so it counts as open.
+ */
+function openToUser(where, user) {
+  if (where.global || (!where.countries.size && !where.regions.size)) return true;
+  if (!user.homeCountries.size && !user.wantedRegions.length) return true;
+  if ([...where.countries].some((country) => user.homeCountries.has(country))) return true;
+
+  const userRegions = [...user.homeRegions, ...user.wantedRegions];
+  if ([...where.regions].some((r) => userRegions.some((mine) => regionsOverlap(r, mine)))) return true;
+  // The user wants a whole region ("EU") and the job is limited to a country in it.
+  return [...where.countries].some((country) =>
+    user.wantedRegions.some((region) => regionsOf(country).includes(region)));
+}
+
+/** Whether a job is in one place the user typed. */
+function inPlace(place, job, places, user) {
+  const { where, inTitle } = places;
+  switch (place.kind) {
+    case "remote": return isRemoteJob(job, where) && openToUser(where, user);
+    case "city": return where.cities.has(place.city) || inTitle.cities.has(place.city);
+    case "country": return where.countries.has(place.country) || inTitle.countries.has(place.country);
+    case "region": return inRegion(place.region, where) || inRegion(place.region, inTitle);
+    // A place places.js doesn't know, such as a small town: its words must appear.
+    default: return place.pattern.test(fold(`${job.location || ""} ${job.title || ""}`));
   }
-  return hits;
 }
 
 export function scoreJob(jobItem, p) {
@@ -166,18 +207,23 @@ export function scoreJob(jobItem, p) {
     return { score: 0, rejected: "not remote", kind: "remote", reasons };
   }
 
-  const geo = locationHits(location, p.locations || [],
-                           (jobItem.country || "").toLowerCase(), title);
-  const globallyOpen = !location || GLOBAL_WORDS.some((w) => location.includes(w));
+  const places = placesOfJob(jobItem);
+  const user = placesOfUser(p);
+  const geo = user.wanted.filter((place) => inPlace(place, jobItem, places, user)).map((place) => place.label);
+  // Only the ad itself can say it is open everywhere. An ad with no location
+  // says nothing about where it is, so it is not "worldwide" either.
+  const globallyOpen = places.where.global;
 
-  // Το ίδιο λεξιλόγιο με το πεδίο «πού μπορείς να δουλέψεις». Χωρίς αυτό,
-  // «Greece» δεν έκοβε τίποτα και «Ελλάδα» τα έκοβε όλα — δύο γραφές της ίδιας
-  // λέξης, δύο διαφορετικές συμπεριφορές, και καμία εξήγηση στον χρήστη.
-  const blocked = (p.blockedLocations || [])
-    .find((b) => locationHits(location, [b], (jobItem.country || "").toLowerCase(), title).length);
-  if (blocked && !geo.length) return { score: 0, rejected: `blocked location: ${blocked}`, kind: "blocked", reasons };
-  if (p.strictLocation && (p.locations || []).length && !geo.length && !globallyOpen) {
-    return { score: 0, rejected: `outside your locations: ${jobItem.location}`, kind: "location", reasons };
+  // Blocking follows the same rules as wanting, so "Greece" and "Ελλάδα" behave
+  // the same in both fields. A place the user also wants wins over a block.
+  const blocked = user.blocked.find((place) => (place.kind === "remote"
+    ? isRemoteJob(jobItem, places.where)
+    : inPlace(place, jobItem, places, user)));
+  if (blocked && !geo.length) {
+    return { score: 0, rejected: `blocked location: ${blocked.label}`, kind: "blocked", reasons };
+  }
+  if (p.strictLocation && user.wanted.length && !geo.length && !globallyOpen) {
+    return { score: 0, rejected: `outside your locations: ${jobItem.location || "no location given"}`, kind: "location", reasons };
   }
 
   const age = ageDays(jobItem.postedAt);
@@ -204,11 +250,11 @@ export function scoreJob(jobItem, p) {
   if (geo.length) {
     score += W.location;
     reasons.chips.push({ kind: "", text: [...new Set(geo)].slice(0, 2).join(" · ") });
-  } else if (globallyOpen || !(p.locations || []).length) {
+  } else if (globallyOpen || !user.wanted.length) {
     score += W.location * 0.7;
-    // Το σήμα μπαίνει μόνο αν η ίδια η αγγελία λέει ότι δέχεται από παντού.
-    // Χωρίς φίλτρο τοποθεσίας παίρνει τους ίδιους βαθμούς — αλλά μια θέση στη
-    // Νέα Σμύρνη δεν γίνεται παγκόσμια επειδή εσύ δεν διάλεξες περιοχή.
+    // The chip only when the ad itself says it takes people from anywhere.
+    // Without a location filter the points are the same, but a job in Nea
+    // Smyrni doesn't become worldwide because the user chose no area.
     if (globallyOpen) reasons.chips.push({ kind: "", text: "Worldwide" });
   }
 
