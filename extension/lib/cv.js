@@ -1,6 +1,7 @@
 import { ALL_PROFESSIONS } from "./professions.js";
 import { countryLabel, placesIn } from "./places.js";
 import { detectFormat, docText, rtfText, zipDocumentText } from "./documents.js";
+import { pdfDecryption } from "./pdfcrypt.js";
 
 /*
  * Reading the CV the user uploads, with no outside library, and guessing what
@@ -17,7 +18,24 @@ import { detectFormat, docText, rtfText, zipDocumentText } from "./documents.js"
 
 export const MAX_CV_BYTES = 8 * 1024 * 1024;
 
-const latin = new TextDecoder("latin1");
+// TextDecoder("latin1") is Windows-1252 (the web's label for it), which turns
+// bytes 0x80-0x9F into "€", "’" and the like. That is right for the text of a
+// font without a map, which PDFs encode that way (WinAnsiEncoding), and wrong
+// for everything else in a PDF: font codes, binary strings, structure.
+const windows1252 = new TextDecoder("windows-1252");
+const BYTE_STRING_CHUNK = 0x8000;                 // String.fromCharCode's arguments, at most
+
+/** The bytes as a string of the same char codes, 0 to 255. */
+function byteString(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += BYTE_STRING_CHUNK) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + BYTE_STRING_CHUNK));
+  }
+  return out;
+}
+
+/** Text in a font without a ToUnicode map: the bytes as Windows-1252, PDF's WinAnsiEncoding. */
+const winAnsi = (byteText) => windows1252.decode(Uint8Array.from(byteText, (char) => char.charCodeAt(0)));
 
 async function inflate(bytes, format) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
@@ -27,16 +45,16 @@ async function inflate(bytes, format) {
 /* ── PDF ──────────────────────────────────────────────────── */
 
 /**
- * Δύο κόσμοι σε ένα format:
+ * Two kinds of PDF text:
  *
- *  • Απλά PDF (base-14 γραμματοσειρές): τα bytes μέσα στις παρενθέσεις ΕΙΝΑΙ
- *    το κείμενο. Το διαβάζεις κατευθείαν.
- *  • Σύγχρονα PDF (Word, Google Docs, LaTeX, Chrome): ενσωματώνουν υποσύνολα
- *    γραμματοσειρών με Identity encoding — τα bytes είναι αριθμοί glyph, όχι
- *    γράμματα. Η αντιστοίχιση σε κείμενο ζει σε ένα /ToUnicode CMap ανά
- *    γραμματοσειρά. Χωρίς αυτό, βγάζεις σκουπίδια.
+ *  • Plain PDFs (the standard 14 fonts): the bytes inside the parentheses are
+ *    the text, and are read as they are.
+ *  • Most PDFs today (Word, Google Docs, Canva, Chrome, LaTeX) embed subsets
+ *    of their fonts and number the glyphs they use, with one byte per glyph
+ *    or two. A /ToUnicode CMap per font maps those numbers back to text;
+ *    without it, the numbers read as junk.
  *
- * Διαβάζουμε και τα δύο.
+ * Both are read.
  */
 
 const hexToText = (hex) => {
@@ -45,6 +63,11 @@ const hexToText = (hex) => {
   return out;
 };
 
+/**
+ * A font's ToUnicode CMap: { map: code → text, codeBytes }. Codes are as long
+ * as the CMap's code space says: one byte in Word's and Canva's simple fonts,
+ * two in the composite (Identity-H) fonts Chrome and Google Docs write.
+ */
 function parseCMap(text) {
   const map = new Map();
 
@@ -67,31 +90,50 @@ function parseCMap(text) {
       for (let c = lo; c <= hi && c - lo < 65536; c++) map.set(c, String.fromCodePoint(dst + (c - lo)));
     }
   }
-  return map;
+
+  // The code space gives the codes' length; without one, the first code does.
+  const space = /begincodespacerange\s*<([0-9A-Fa-f]+)>/.exec(text)
+    || /beginbf(?:char|range)\s*<([0-9A-Fa-f]+)>/.exec(text);
+  const codeBytes = space && space[1].length <= 2 ? 1 : 2;
+  return { map, codeBytes };
 }
 
-/** Αποσυμπιέζει το stream ενός αντικειμένου, αν έχει. */
-async function objectStream(bytes, raw, from, to) {
+/**
+ * An object's stream: decrypted when the file is encrypted, decompressed when
+ * it is compressed; null when it has none. lengthOf(n) resolves an indirect
+ * /Length.
+ */
+async function objectStream(bytes, raw, from, to, { decrypt = null, lengthOf = () => NaN } = {}) {
   const head = raw.indexOf("stream", from);
   if (head < 0 || head > to) return null;
   let start = head + 6;
-  while (bytes[start] === 13 || bytes[start] === 10) start++;
+  if (bytes[start] === 13) start++;                // "stream" ends with CRLF or LF; the data
+  if (bytes[start] === 10) start++;                // itself may begin with either byte
   const end = raw.indexOf("endstream", start);
   if (end < 0 || end > to + 64) return null;
 
   let stop = end;
   while (stop > start && (bytes[stop - 1] === 10 || bytes[stop - 1] === 13)) stop--;
-  const slice = bytes.subarray(start, stop);
-  if (!slice.length) return null;
+  // The declared length is exact, and encrypted or compressed data can end in
+  // a byte that looks like a line break; trimming at "endstream" would cut it.
+  const dictionary = raw.slice(from, head);
+  const indirect = /\/Length\s+(\d+)\s+0\s+R/.exec(dictionary);
+  const length = indirect ? lengthOf(Number(indirect[1])) : Number(/\/Length\s+(\d+)/.exec(dictionary)?.[1]);
+  if (Number.isFinite(length) && length > 0 && start + length <= end && end - (start + length) <= 2) stop = start + length;
+  let data = bytes.subarray(start, stop);
+  if (!data.length) return null;
+  if (decrypt) {
+    try { data = await decrypt(data); } catch { return null; }
+  }
 
   for (const fmt of ["deflate", "deflate-raw"]) {
-    try { return await inflate(slice, fmt); } catch { /* άλλο filter */ }
+    try { return await inflate(data, fmt); } catch { /* another filter */ }
   }
-  return slice;                                   // ασυμπίεστο
+  return data;                                     // not compressed
 }
 
 async function pdfText(bytes) {
-  const raw = latin.decode(bytes);
+  const raw = byteString(bytes);
 
   // 1. Every object: those written plainly in the file, and those packed into
   //    compressed object streams (PDF 1.5+), where Word and others keep fonts.
@@ -101,7 +143,7 @@ async function pdfText(bytes) {
     const end = raw.indexOf("endobj", start);
     if (end > 0) objects.set(Number(m[1]), { start, end });
   }
-  const packed = await objectsInObjectStreams(bytes, raw, objects);
+  let packed = new Map();
   /** An object's dictionary text, wherever the object is stored. */
   const declaration = (num) => {
     if (packed.has(num)) return packed.get(num);
@@ -110,6 +152,22 @@ async function pdfText(bytes) {
     const streamAt = raw.indexOf("stream", span.start);
     return raw.slice(span.start, streamAt > 0 && streamAt < span.end ? streamAt : span.end);
   };
+
+  // An encrypted PDF that opens without a password, as CV builders protect
+  // them against editing, is decrypted; one that needs a password gives no
+  // text rather than junk.
+  const crypt = await pdfDecryption(raw, declaration);
+  if (crypt?.locked) return "";
+  /** Object num's stream data, decrypted and decompressed. */
+  const streamOf = (num) => {
+    const span = objects.get(num);
+    if (!span) return null;
+    return objectStream(bytes, raw, span.start, span.end, {
+      decrypt: crypt ? (data) => crypt.decrypt(data, num) : null,
+      lengthOf: (ref) => Number(declaration(ref).trim()),
+    });
+  };
+  packed = await objectsInObjectStreams(raw, objects, streamOf);
   const allNumbers = [...new Set([...objects.keys(), ...packed.keys()])];
 
   // 2. The ToUnicode CMap of each font object
@@ -118,40 +176,43 @@ async function pdfText(bytes) {
     if (cmapCache.has(fontObjNum)) return cmapCache.get(fontObjNum);
     let map = null;
     const ref = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(declaration(fontObjNum));
-    const target = ref && objects.get(Number(ref[1]));
-    if (target) {
-      const data = await objectStream(bytes, raw, target.start, target.end);
-      if (data) map = parseCMap(latin.decode(data));
-    }
+    const data = ref && await streamOf(Number(ref[1]));
+    if (data) map = parseCMap(byteString(data));
     cmapCache.set(fontObjNum, map);
     return map;
   };
 
-  // 3. Font resource names (/F1) → font objects. Each page has its own; the
-  //    file-wide map is the fallback for content that names fonts elsewhere.
-  const fontsIn = (text) => {
-    const fonts = new Map();
-    const inline = /\/Font\s*<<([\s\S]{0,4000}?)>>/.exec(text);
-    const referenced = /\/Font\s+(\d+)\s+0\s+R/.exec(text);
+  // 3. Resource names → objects: fonts (/F1) and drawings (/Fm1, the form
+  //    XObjects). A page or a form names its own, inline or by reference;
+  //    the file-wide font map is the fallback for content that names fonts
+  //    elsewhere, as a page inheriting its parent's resources does.
+  const namesIn = (text, kind) => {
+    const names = new Map();
+    const inline = new RegExp(`/${kind}\\s*<<([\\s\\S]{0,4000}?)>>`).exec(text);
+    const referenced = new RegExp(`/${kind}\\s+(\\d+)\\s+0\\s+R`).exec(text);
     const body = inline ? inline[1] : referenced ? declaration(Number(referenced[1])) : "";
-    for (const e of body.matchAll(/\/([A-Za-z0-9_.#+-]+)\s+(\d+)\s+0\s+R/g)) fonts.set(e[1], Number(e[2]));
-    return fonts;
+    for (const e of body.matchAll(/\/([A-Za-z0-9_.#+-]+)\s+(\d+)\s+0\s+R/g)) names.set(e[1], Number(e[2]));
+    return names;
+  };
+  const resourcesOf = (dictionary) => {
+    const ref = /\/Resources\s+(\d+)\s+0\s+R/.exec(dictionary);
+    const text = ref ? declaration(Number(ref[1])) : dictionary;
+    return { fonts: namesIn(text, "Font"), xobjects: namesIn(text, "XObject") };
   };
   const fontByName = new Map();
-  for (const num of allNumbers) for (const [name, ref] of fontsIn(declaration(num))) fontByName.set(name, ref);
-  const fontsOfPage = (page) => {
-    const own = fontsIn(page);
-    if (own.size) return own;
-    const resources = /\/Resources\s+(\d+)\s+0\s+R/.exec(page);
-    return resources ? fontsIn(declaration(Number(resources[1]))) : new Map();
-  };
+  for (const num of allNumbers) for (const [name, ref] of namesIn(declaration(num), "Font")) fontByName.set(name, ref);
 
-  // Turning a content stream's strings into text, with the font's CMap when it has one.
-  const decodeWithMap = (codes, map) => {
+  // Turning a content stream's strings into text, through the font's CMap when it has one.
+  // A code the map leaves out: one-byte fonts keep plain letters where ASCII
+  // has them, while a two-byte glyph number means nothing on its own.
+  const unmapped = (code, codeBytes) =>
+    (codeBytes === 1 && code >= 32 && code < 127 ? String.fromCharCode(code) : "");
+  const decodeWithMap = (bytes, cmap) => {
     let out = "";
-    for (let i = 0; i + 1 < codes.length; i += 2) {
-      const code = (codes.charCodeAt(i) << 8) | codes.charCodeAt(i + 1);
-      out += map.get(code) ?? "";
+    for (let i = 0; i + cmap.codeBytes <= bytes.length; i += cmap.codeBytes) {
+      let code = 0;
+      for (let b = 0; b < cmap.codeBytes; b++) code = (code << 8) | bytes.charCodeAt(i + b);
+      out += cmap.map.get(code) ?? unmapped(code, cmap.codeBytes);
     }
     return out;
   };
@@ -159,20 +220,17 @@ async function pdfText(bytes) {
     .replace(/\\([()\\])/g, "$1")
     .replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, " ")
     .replace(/\\(\d{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
-
-  const decodeText = (token, map) => {
-    if (token[0] === "(") {
-      const body = unescapeLiteral(token.slice(1, -1));
-      return map ? decodeWithMap(body, map) : body;
-    }
-    const hex = token.slice(1, -1).replace(/\s+/g, "");
+  /** A hex string's bytes; an odd last digit counts as followed by 0. */
+  const hexBytes = (hex) => {
+    const digits = hex.replace(/\s+/g, "");
     let out = "";
-    const width = map ? 4 : 2;
-    for (let i = 0; i + width <= hex.length; i += width) {
-      const code = parseInt(hex.slice(i, i + width), 16);
-      out += map ? map.get(code) ?? "" : String.fromCharCode(code);
-    }
+    for (let i = 0; i < digits.length; i += 2) out += String.fromCharCode(parseInt(digits.slice(i, i + 2).padEnd(2, "0"), 16));
     return out;
+  };
+
+  const decodeText = (token, cmap) => {
+    const bytes = token[0] === "(" ? unescapeLiteral(token.slice(1, -1)) : hexBytes(token.slice(1, -1));
+    return cmap ? decodeWithMap(bytes, cmap) : winAnsi(bytes);
   };
 
   const decodeArray = (array, map) => {
@@ -205,14 +263,40 @@ async function pdfText(bytes) {
     /((?:-?[\d.]+\s+){6})Tm/,                      // 3: text matrix
     /((?:-?[\d.]+\s+){2})T[dD]/,                   // 4: text displacement
     /\[((?:\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|[-+]?(?:\d+\.\d*|\.\d+|\d+)(?![\d.])|\s|%[^\r\n]*(?=\r|\n|$))*)\]\s*TJ/, // 5: text array
+    /\/([A-Za-z0-9_.#+-]+)\s+Do\b/,                 // 6: draw a form or an image
     /T\*|ET|BT/,
   ].map((r) => r.source).join("|"), "g");
 
+  // A form drawn inside forms deeper than this is a loop, not a design.
+  const MAX_FORM_DEPTH = 12;
+
+  /**
+   * The text of a form XObject. Designed CVs (Canva, InDesign, a browser's
+   * "Save as PDF") draw their pages through forms, sometimes nested, and a
+   * page whose content only says "/Fm1 Do" holds no text of its own. A form
+   * uses its own fonts, or the page's when it names none.
+   */
+  const readForm = async (num, outer, drawing) => {
+    if (num === undefined || drawing.has(num) || drawing.size >= MAX_FORM_DEPTH) return;
+    const dictionary = declaration(num);
+    if (!/\/Subtype\s*\/Form\b/.test(dictionary)) return;      // images hold no text
+    const data = await streamOf(num);
+    if (!data) return;
+    const own = resourcesOf(dictionary);
+    chunks.push("\n");                                          // a form is a block of its own
+    drawing.add(num);
+    await readContent(data, {
+      fonts: own.fonts.size ? own.fonts : outer.fonts,
+      xobjects: own.xobjects.size ? own.xobjects : outer.xobjects,
+    }, drawing);
+    drawing.delete(num);
+  };
+
   // Td/Tm do not always start a new line: Chrome also uses them to move within
   // a line. A new line is when the baseline (Y) changes.
-  const readContent = async (data, fonts) => {
-    const text = latin.decode(data);
-    if (!/\bTj\b|\bTJ\b|\bTf\b/.test(text)) return;
+  const readContent = async (data, resources, drawing = new Set()) => {
+    const text = byteString(data);
+    if (!/\bTj\b|\bTJ\b|\bTf\b|\bDo\b/.test(text)) return;
     let map = null;
     let lastY = null, lastX = null;
 
@@ -226,7 +310,12 @@ async function pdfText(bytes) {
     for (const g of text.matchAll(TOKEN)) {
       const token = g[0];
       if (g[1] !== undefined) {                    // /F1 12 Tf
-        map = await cmapFor(fonts.get(g[1]) ?? fontByName.get(g[1]));
+        map = await cmapFor(resources.fonts.get(g[1]) ?? fontByName.get(g[1]));
+        continue;
+      }
+      if (g[6] !== undefined) {                    // /Fm1 Do
+        await readForm(resources.xobjects.get(g[6]), resources, drawing);
+        lastY = null;
         continue;
       }
       if (g[3] !== undefined) {                    // a b c d e f Tm
@@ -258,23 +347,22 @@ async function pdfText(bytes) {
   //    font programs and images, which turn into thousands of junk characters.
   const pages = pagesInOrder(declaration, allNumbers);
   for (const page of pages) {
-    const fonts = fontsOfPage(page.text);
+    const resources = resourcesOf(page.text);
     for (const ref of contentRefs(page.text, declaration)) {
-      const span = objects.get(ref);
-      const data = span && await objectStream(bytes, raw, span.start, span.end);
-      if (data) await readContent(data, fonts);
+      const data = await streamOf(ref);
+      if (data) await readContent(data, resources);
       if (chunks.length > 60000) break;
     }
   }
   // A file without a readable page tree: fall back to every stream that draws text.
   if (!pages.length) {
-    for (const [, span] of objects) {
+    for (const [num, span] of objects) {
       const decl = raw.slice(span.start, Math.min(span.end, span.start + 400));
       if (/\/(Image|Font|FontFile|ToUnicode|XObject\s*<<)/.test(decl) && !/\/Contents/.test(decl)) {
         if (!/\/Length/.test(decl) || /\/Subtype\s*\/Image/.test(decl)) continue;
       }
-      const data = await objectStream(bytes, raw, span.start, span.end);
-      if (data) await readContent(data, new Map());
+      const data = await streamOf(num);
+      if (data) await readContent(data, { fonts: new Map(), xobjects: new Map() });
       if (chunks.length > 60000) break;
     }
   }
@@ -291,17 +379,18 @@ async function pdfText(bytes) {
 /**
  * Objects packed into compressed object streams (/Type /ObjStm, PDF 1.5+),
  * as number → dictionary text. The stream starts with "number offset" pairs.
+ * streamOf(n) reads object n's stream.
  */
-async function objectsInObjectStreams(bytes, raw, objects) {
+async function objectsInObjectStreams(raw, objects, streamOf) {
   const found = new Map();
-  for (const [, span] of objects) {
+  for (const [num, span] of objects) {
     const head = raw.slice(span.start, Math.min(span.end, span.start + 300));
     if (!/\/Type\s*\/ObjStm/.test(head)) continue;
     const count = Number(/\/N\s+(\d+)/.exec(head)?.[1]);
     const first = Number(/\/First\s+(\d+)/.exec(head)?.[1]);
-    const data = count && first && await objectStream(bytes, raw, span.start, span.end);
+    const data = count && first && await streamOf(num);
     if (!data) continue;
-    const text = latin.decode(data);
+    const text = byteString(data);
     const index = text.slice(0, first).trim().split(/\s+/).map(Number);
     for (let i = 0; i < count; i++) {
       const offset = index[2 * i + 1];
@@ -393,7 +482,7 @@ async function cvText(bytes, ext) {
   switch (detectFormat(bytes)) {
     case "pdf": return pdfText(bytes);
     case "zip": return zipDocumentText(bytes);
-    case "rtf": return rtfText(latin.decode(bytes));
+    case "rtf": return rtfText(windows1252.decode(bytes));
     case "ole": return docText(bytes);
     default: return DOCUMENT_EXTENSIONS.has(ext) ? "" : plainText(bytes);
   }
