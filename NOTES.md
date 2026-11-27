@@ -12,7 +12,28 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
-### 2026-11-28 · Claude (for Panos and Apo) · Dutch sources, and the right ESCO occupations
+### 2026-11-27 · Claude (for Panos and Apo) · The store's addresses, and its published version
+
+- The store refused to publish 1.2.0: "Homepage URL is not reachable". Since
+  the rename, `georgasp.github.io/jobhunter/` answers 404 (github.com redirects
+  a renamed repository, GitHub Pages does not), and the homepage had been set
+  in the dashboard by hand, written down nowhere here.
+- `store/LISTING.md` now lists all three addresses (homepage, support, privacy
+  policy), and `python store/preflight.py` opens each one: an address that
+  fails blocks the submission, one that redirects gets a warning with the
+  address to use instead (`store/listing.py`, `tests/test_listing.py`).
+- preflight's check that our version is above the published one did not work:
+  its pattern held two backspace characters where `\b` was meant, and the
+  store page shows the label before the number. It reads "1.0.0" now.
+- For Panos: in the dashboard, Store listing → Additional fields: Homepage
+  `https://georgasp.github.io/jobora/`, Support
+  `https://github.com/GeorgasP/jobora/issues`; Privacy tab: privacy policy
+  `https://georgasp.github.io/jobora/privacy.html`.
+- For Apo: preflight warns that `onboarding.continue` is no longer used since
+  "Improve onboarding navigation buttons". Remove it from the locales, or use
+  it again.
+
+### 2026-11-27 · Claude (for Panos and Apo) · Dutch sources, and the right ESCO occupations
 
 - For Apo: three Dutch sources, for users who can work in the Netherlands:
   Werken bij de Overheid (the public sector, about 1,400 jobs), Meesterbaan

@@ -6,7 +6,7 @@ hands — an account, a payment, a hosted URL and four screenshots.
 ```bash
 python store/package.py
 ```
-→ `store/dist/jobora-1.0.0.zip` · 35 files · 140 KB
+→ `store/dist/jobora-<version>.zip`, with the version in `extension/manifest.json`
 
 ```bash
 python store/preflight.py
@@ -69,12 +69,13 @@ Upload them in that order; the first is the one people actually look at.
 ## Step 4 — Create the listing (20 minutes)
 
 In the Developer Dashboard: **Add new item** → upload
-`store/dist/jobora-1.0.0.zip`.
+`store/dist/jobora-<version>.zip`.
 
 Then work through the tabs, pasting from `LISTING.md`:
 
 - **Store listing** — name, short description, detailed description, category
-  (Productivity), language, screenshots, store icon
+  (Productivity), language, screenshots, store icon, and under **Additional
+  fields** the homepage and support URLs
 - **Privacy practices** — single purpose statement, a justification for every
   permission, the data-usage disclosures, the three certification checkboxes,
   and your privacy policy URL
@@ -118,7 +119,10 @@ onboarding opens, a CV can be dropped in, and a real search runs. Nothing is
 gated behind an account or a key. That is a meaningful advantage during review.
 
 **Updates.** Each update goes through review again. Batch changes rather than
-shipping daily.
+shipping daily. To send one: upload the new zip on the **Package** tab, paste
+whatever changed from `LISTING.md` and `PRIVACY_FIELDS.md`, press **Save
+draft**, then **Submit for review**. While "Submit for review" stays grey,
+**Why can't I submit?** next to it lists what is missing.
 
 **What is not in this package.** The Python version in `jobora/` — SMTP email
 applications and IMAP reply tracking — stays out. A browser extension cannot do
