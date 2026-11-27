@@ -32,8 +32,10 @@ Rules:
 8. Write in the requested language, natively (not translated-sounding).
 9. Start with an appropriate greeting, end with the candidate's name."""
 
-LANG_NAMES = {"en": "English", "el": "Greek", "es": "Spanish",
-              "de": "German", "fr": "French", "it": "Italian"}
+# The languages Claude is asked to write in: the same as the extension's
+# (extension/lib/letters.js). Any other code gets English.
+LANG_NAMES = {"en": "English", "el": "Greek", "es": "Spanish", "de": "German", "fr": "French",
+              "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish"}
 
 
 class LetterError(RuntimeError):
@@ -42,7 +44,7 @@ class LetterError(RuntimeError):
 
 def generate(job: dict, profile: Profile, settings: Settings,
              language: str | None = None) -> tuple[str, str]:
-    """Returns (content, model_used). Πέφτει σε template αν δεν υπάρχει key."""
+    """Returns (content, model_used): Claude's letter, or the template without a key or a CV."""
     lang = language or profile.default_language
     cv_text = profile.cv_text(lang)
 
@@ -98,7 +100,7 @@ def _claude(job: dict, profile: Profile, settings: Settings, lang: str, cv_text:
     blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
     text = "\n".join(blocks).strip()
     if not text:
-        raise LetterError("κενή απάντηση από το API")
+        raise LetterError("empty response from the API")
     return text
 
 
@@ -120,46 +122,39 @@ def _cv_highlights(profile: Profile, lang: str, n: int = 3) -> list[str]:
     return bullets[:n]
 
 
-def _template(job: dict, profile: Profile, lang: str) -> str:
-    company = job.get("company", "your company")
-    title = job.get("title", "the role")
-    highlights = _cv_highlights(profile, lang)
-    name = profile.name or "—"
+# The template's sentences, word for word the extension's English and Greek
+# ones (extension/lib/letters.js); other languages use the English. They claim
+# nothing about the user: everything specific comes from the CV's bullets.
+_TEMPLATES = {
+    "en": {
+        "greeting": "Dear {company} hiring team,",
+        "opening": "I am applying for the {title} position. My background lines up closely with what the role asks for.",
+        "no_highlights": "Please see my attached CV for the full background.",
+        "closing": "I would welcome the chance to discuss how I can contribute to {company}. "
+                   "I am available for an interview at short notice.",
+        "sign_off": "Kind regards,",
+    },
+    "el": {
+        "greeting": "Αξιότιμοι κύριοι/κυρίες της {company},",
+        "opening": "Γράφω για τη θέση {title}. Το προφίλ μου ταιριάζει άμεσα με όσα ζητά ο ρόλος.",
+        "no_highlights": "Παρακαλώ δείτε το συνημμένο βιογραφικό μου.",
+        "closing": "Θα χαρώ να συζητήσουμε πώς μπορώ να συνεισφέρω στην {company}. "
+                   "Είμαι διαθέσιμος/η για συνέντευξη άμεσα.",
+        "sign_off": "Με εκτίμηση,",
+    },
+}
 
-    if lang == "el":
-        body = [
-            f"Αξιότιμοι κύριοι/κυρίες της {company},",
-            "",
-            f"Γράφω για τη θέση {title}. Το προφίλ μου συνδυάζει άμεση εμπειρία "
-            f"σε πελατοκεντρικούς ρόλους με πρακτική γνώση του κλάδου σας.",
-            "",
-        ]
-        body += [f"• {h}" for h in highlights] or ["• Δείτε το βιογραφικό μου για αναλυτικά στοιχεία."]
-        body += [
-            "",
-            f"Θα χαρώ πολύ να συζητήσουμε πώς μπορώ να συνεισφέρω στην ομάδα της {company}. "
-            "Είμαι διαθέσιμος για συνέντευξη άμεσα.",
-            "",
-            "Με εκτίμηση,",
-            name,
-        ]
-    else:
-        body = [
-            f"Dear {company} hiring team,",
-            "",
-            f"I am applying for the {title} position. My background combines hands-on "
-            f"customer-facing experience with practical domain knowledge of your industry.",
-            "",
-        ]
-        body += [f"• {h}" for h in highlights] or ["• Please see my CV for detailed background."]
-        body += [
-            "",
-            f"I would welcome the chance to discuss how I can contribute to {company}. "
-            "I am available for an interview immediately.",
-            "",
-            "Kind regards,",
-            name,
-        ]
+
+def _template(job: dict, profile: Profile, lang: str) -> str:
+    words = _TEMPLATES.get(lang, _TEMPLATES["en"])
+    company = job.get("company") or "your company"
+    title = job.get("title") or "the role"
+    highlights = _cv_highlights(profile, lang) or [words["no_highlights"]]
+
+    body = [words["greeting"].format(company=company), "",
+            words["opening"].format(title=title), ""]
+    body += [f"• {point}" for point in highlights]
+    body += ["", words["closing"].format(company=company), "", words["sign_off"], profile.name or "—"]
 
     contact = " · ".join(x for x in (profile.email, profile.phone, profile.linkedin) if x)
     if contact:
