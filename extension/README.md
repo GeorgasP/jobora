@@ -143,6 +143,7 @@ For the checks that need a real browser, serve the repository locally with
   sample Greenhouse, Lever and Workable forms.
 - `http://127.0.0.1:8765/tests/save.browser.html`: "Save to Jobora" on a job
   post, as on a social site.
+- `http://127.0.0.1:8765/tests/popup.browser.html`: the toolbar popup.
 
 Each page reports PASS or FAIL and uses synthetic CVs and simulated extension
 storage.

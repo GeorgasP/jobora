@@ -13,11 +13,14 @@ import { boardsWithPermission } from "./lib/portals.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
 import { findApplication } from "./lib/applications.js";
+import { countMatches } from "./lib/filters.js";
 import { pickCompanies } from "./lib/companies.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, t } from "./lib/i18n.js";
 
 const ALARM = "jobora-daily";
+// How many of the best matches go to the dashboard; it shows at most 100 at a time.
+const MATCHES_SENT = 200;
 // Το προηγούμενο όνομα του προϊόντος ζει ακόμη σε ένα χρονόμετρο που έφτιαξε
 // μια παλιότερη εγκατάσταση. Δεν ταιριάζει πια με κανέναν ακροατή, οπότε θα
 // χτυπούσε για πάντα χωρίς να κάνει τίποτα. Το σβήνουμε μία φορά.
@@ -295,7 +298,12 @@ async function prefillFor(page) {
 /* ── Message API ──────────────────────────────────────────── */
 const HANDLERS = {
   scan: () => runScan({ silent: false }),
-  matches: async () => ({ ok: true, matches: (await currentMatches()).slice(0, 200) }),
+  // The best matches for the dashboard to show, and counts of all of them:
+  // counting only the ones sent made every count stop at that number.
+  matches: async () => {
+    const all = await currentMatches();
+    return { ok: true, matches: all.slice(0, MATCHES_SENT), counts: countMatches(all) };
+  },
   apply: (msg) => applyToJob(msg.jobId, msg.method),
   prefill: (msg) => prefillFor({ url: msg.url, title: msg.title }),
   fillTexts: async () => ({ ok: true, texts: pageTexts("fill") }),

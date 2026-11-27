@@ -7,6 +7,7 @@ import { createTagField } from "./lib/tagfield.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES, currentLanguage } from "./lib/i18n.js";
 import { PORTAL_ORIGINS, portalsAllowed } from "./lib/portals.js";
+import { MATCH_FILTERS, countMatches } from "./lib/filters.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -66,6 +67,10 @@ function setupCvDragAndDrop() {
 }
 
 let profile = null, matches = [], apps = [], state = null, filter = "all";
+// How many matches there are in all, per quick filter. `matches` holds only
+// the best of them (see the "matches" message in background.js).
+let matchCounts = countMatches([]);
+const CARDS_SHOWN = 100;
 // Λεξιλόγιο από τις κατεβασμένες αγγελίες — έτσι οι προτάσεις είναι η γραφή
 // που χρησιμοποιούν όντως οι εταιρείες.
 let vocab = { titles: [], locations: [] };
@@ -122,6 +127,8 @@ async function load({ forms = true } = {}) {
   [profile, apps, state] = await Promise.all([store.getProfile(), store.getApps(), store.getState()]);
   const res = await send({ type: "matches" });
   matches = res?.matches || [];
+  // The worker sends the best matches and counts all of them.
+  matchCounts = res?.counts || countMatches(matches);
 
   const allJobs = await store.getJobs();
   vocab = buildVocabulary(allJobs, { industries: profile.industries });
@@ -151,9 +158,9 @@ async function load({ forms = true } = {}) {
   who.onclick = () => goTo("profile");
   const jobs = allJobs;
   $("#who-sub").textContent = t("nav.jobsTracked", { count: jobs.length });
-  $("#nav-matches").textContent = matches.length;
+  $("#nav-matches").textContent = matchCounts.all;
   $("#nav-apps").textContent = apps.length;
-  $("#sub").textContent = t("header.matches.sub", { count: matches.length, when: ago(state.lastScan) });
+  $("#sub").textContent = t("header.matches.sub", { count: matchCounts.all, when: ago(state.lastScan) });
 
   renderStats(jobs.length);
   renderCards();
@@ -202,7 +209,7 @@ function renderStats(jobCount) {
   $("#stats").innerHTML = `
     <div class="stat"><div class="k">${esc(t("stats.jobsTracked"))}</div><div class="v">${jobCount.toLocaleString()}</div>
       <div class="d">${newLine}</div></div>
-    <div class="stat"><div class="k">${esc(t("stats.matches"))}</div><div class="v">${matches.length}</div>
+    <div class="stat"><div class="k">${esc(t("stats.matches"))}</div><div class="v">${matchCounts.all.toLocaleString()}</div>
       <div class="d">${esc(t("stats.minScore", { n: profile.minScore }))}</div></div>
     <div class="stat"><div class="k">${esc(t("stats.applications"))}</div><div class="v">${apps.length}</div>
       <div class="d">${esc(t("stats.sentReady", { sent, ready: apps.length - sent }))}</div></div>
@@ -213,13 +220,9 @@ function renderStats(jobCount) {
 const ringColor = (s) => (s >= 80 ? "var(--ok)" : s >= 65 ? "var(--warn)" : "var(--fg-3)");
 
 function visibleMatches() {
-  const today = Date.now() - 36 * 3600 * 1000;
-  return matches.filter((m) => {
-    if (filter === "remote") return m.remote;
-    if (filter === "today") return m.postedAt && Date.parse(m.postedAt) > today;
-    if (filter === "salary") return m.salaryMin || m.salaryMax;
-    return true;
-  });
+  const keeps = MATCH_FILTERS[filter] || MATCH_FILTERS.all;
+  const now = Date.now();
+  return matches.filter((m) => keeps(m, now));
 }
 
 /* Εταιρεία, τοποθεσία, πηγή — με τελείες ανάμεσα, αλλά μόνο σε ό,τι υπάρχει.
@@ -238,8 +241,8 @@ function metaLine(m) {
 }
 
 function renderCards() {
-  const list = visibleMatches().slice(0, 100);
-  $("#count").textContent = t("filter.showing", { shown: list.length, total: matches.length });
+  const list = visibleMatches().slice(0, CARDS_SHOWN);
+  $("#count").textContent = t("filter.showing", { shown: list.length, total: matchCounts[filter] ?? matchCounts.all });
 
   if (!list.length) {
     const scanning = $("#scan").disabled;
@@ -692,7 +695,7 @@ $("#scan").onclick = async () => {
 };
 
 const TITLES = {
-  matches: () => [t("nav.matches"), t("header.matches.sub", { count: matches.length, when: ago(state.lastScan) })],
+  matches: () => [t("nav.matches"), t("header.matches.sub", { count: matchCounts.all, when: ago(state.lastScan) })],
   pipeline: () => [t("nav.pipeline"), t("header.pipeline.sub", { count: apps.length })],
   profile: () => [t("nav.profile"), t("header.profile.sub")],
   settings: () => [t("nav.settings"), t("header.settings.sub")],

@@ -121,6 +121,22 @@ test("with permission, a scan asks ESCO once per title and EURES for the user's 
   assert.equal(hits("ec.europa.eu").length, 1);
 });
 
+test("the dashboard gets the best matches, and counts of all of them", async () => {
+  const saved = storage.jobs;
+  storage.jobs = Array.from({ length: 250 }, (_, n) => ({
+    id: `many-${n}`, source: "remotive", company: `Taverna ${n}`, title: "Waiter", location: "Athens, Greece",
+    description: "", url: `https://remotive.com/jobs/many-${n}`, postedAt: now, lastSeen: now,
+    remote: n % 5 === 0, salaryMin: n % 10 === 0 ? 20000 : null, salaryMax: null, salaryCurrency: "EUR",
+  }));
+  try {
+    const { matches, counts } = await send({ type: "matches" });
+    assert.equal(matches.length, 200);
+    assert.deepEqual(counts, { all: 250, remote: 50, today: 250, salary: 25 });
+  } finally {
+    storage.jobs = saved;
+  }
+});
+
 /* ── The application form ──────────────────────────────────── */
 const application = (id, url, company, status = "prepared") =>
   ({ id, jobId: id, url, company, title: "Waiter", status, coverLetter: `Dear ${company} hiring team,` });
