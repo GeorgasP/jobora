@@ -1,0 +1,199 @@
+<!doctype html><meta charset="utf-8"><title>Autofill check</title>
+<pre id="result">RUNNING</pre><div id="frames"></div>
+<script type="module">
+// Loads the real content scripts (content/prefill.js and content/button.js)
+// into sample application forms, shaped like the ones Greenhouse, Lever and
+// Workable serve, and checks what "Fill with Jobora" does with them.
+// Serve the repository root and open this file (see extension/README.md).
+const result = document.querySelector("#result");
+const base = new URL("../extension/", location.href).href;
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// What the service worker answers to {type: "prefill"}. The company name
+// carries markup: job ads come from public boards, and the box that reports
+// the fill must show such text, never run it.
+window.DATA = {
+  ok: true, applicationId: "app-1",
+  job: { company: '<img src="x" onerror="parent.injected = true">Thalassa', title: "Waiter" },
+  answers: {
+    full_name: "Maria Papadopoulou", first_name: "Maria", last_name: "Papadopoulou",
+    email: "maria@example.test", phone: "+30 690 000 0000", location: "Athens, Greece",
+    linkedin: "https://www.linkedin.com/in/maria-example", github: "",
+    website: "https://www.linkedin.com/in/maria-example",
+    work_authorization: "EU citizen", notice_period: "Immediately available",
+    salary_expectation: "", how_did_you_hear: "A job board",
+  },
+  cover_letter: "Dear Thalassa hiring team,\n\nI am applying for the Waiter position.",
+  cv: { filename: "maria-cv.pdf", mime: "application/pdf", base64: btoa("%PDF-1.4 test") },
+};
+window.GREEK_TEXTS = {
+  button: "🎯 Συμπλήρωση με Jobora", filling: "Συμπληρώνει…",
+  filled: "Πεδία που συμπληρώθηκαν: {n}", check: "Έλεγξε τα πάντα, και πάτα εσύ Submit.",
+};
+
+/** A sample application page in its own frame, with the content scripts loaded. */
+async function formPage(body, { head = "", scripts = ["content/prefill.js"] } = {}) {
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "width:900px;height:600px;display:block";
+  document.querySelector("#frames").append(frame);
+  const loaded = new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8">${head}</head><body>${body}`
+    + scripts.map((src) => `<script src="${base}${src}"><\/script>`).join("") + "</body></html>";
+  await loaded;
+  return frame.contentWindow;
+}
+
+/**
+ * React keeps the value it last set through the element's own "value"
+ * property and ignores an input event that brings no change to it. Counts the
+ * changes React would see, to prove the fill reaches such forms.
+ */
+function likeReact(input) {
+  const { get, set } = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
+  let tracked = input.value;
+  const seen = { changes: 0 };
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get() { return get.call(this); },
+    set(value) { tracked = value; set.call(this, value); },
+  });
+  input.addEventListener("input", () => { if (input.value !== tracked) { tracked = input.value; seen.changes++; } });
+  return seen;
+}
+
+const GREENHOUSE = `
+<form onsubmit="parent.submitted = true; return false">
+  <div class="field"><label for="first_name">First Name *</label><input id="first_name" name="job_application[first_name]" required></div>
+  <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="job_application[last_name]" required></div>
+  <div class="field"><label for="email">Email *</label><input id="email" name="job_application[email]" required value="typed@example.test"></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" name="job_application[phone]"></div>
+  <div class="field"><label for="cover_file">Cover Letter</label><input id="cover_file" type="file" name="job_application[cover_letter]"></div>
+  <div class="field"><label for="resume">Resume/CV *</label><input id="resume" type="file" name="job_application[resume]" required></div>
+  <div class="field"><label for="li">LinkedIn Profile</label><input id="li" name="job_application[answers][0][text_value]"></div>
+  <div class="field"><label for="web">Website</label><input id="web" name="job_application[answers][1][text_value]"></div>
+  <div class="field"><label for="oss">Open source contributions</label><textarea id="oss"></textarea></div>
+  <div class="field"><label for="ethnicity">Ethnicity</label><input id="ethnicity"></div>
+  <div class="field"><label for="relocation">Relocation assistance needed?</label><input id="relocation"></div>
+  <div class="field"><label for="auth">Are you legally authorized to work in Greece?</label>
+    <select id="auth" required><option value="">Select…</option><option>Yes</option><option>No</option></select></div>
+  <div class="field"><label for="why">Why do you want to join us?</label><textarea id="why"></textarea></div>
+  <button type="submit">Submit application</button>
+</form>`;
+
+const LEVER = `
+<form>
+  <label>Company name <input name="company_name"></label>
+  <label>Full name <input name="name"></label>
+  <label>Name of your university <input name="university"></label>
+  <label>Email address <input type="email" name="email"></label>
+  <label>Phone number <input name="phoneNumber"></label>
+  <label>Current location <input name="location"></label>
+  <label>How did you hear about us? <input name="source"></label>
+</form>`;
+
+const WORKABLE = `
+<form>
+  <div aria-required="true"><label for="firstname">First name</label><input id="firstname" name="firstname"></div>
+  <div aria-required="true"><label for="lastname">Last name</label><input id="lastname" name="lastname"></div>
+  <fieldset aria-required="true"><legend>Do you need visa sponsorship?</legend>
+    <label><input type="radio" name="sponsorship" value="yes"> Yes</label>
+    <label><input type="radio" name="sponsorship" value="no"> No</label></fieldset>
+  <fieldset><legend>Where are you based?</legend>
+    <select name="country"><option value="">Choose</option><option value="gr">Greece</option></select></fieldset>
+</form>`;
+
+try {
+  /* ── Greenhouse-shaped form ─────────────────────────────── */
+  const gh = await formPage(GREENHOUSE);
+  const $ = (id) => gh.document.getElementById(id);
+  const phoneSeen = likeReact($("phone"));
+  const report = gh.__joboraFill(structuredClone(DATA));
+
+  assert($("first_name").value === "Maria" && $("last_name").value === "Papadopoulou", "first and last name");
+  assert($("email").value === "typed@example.test", "an email the user typed was overwritten");
+  assert($("phone").value === "+30 690 000 0000", "phone not filled");
+  assert(phoneSeen.changes === 1, "a React-controlled field would not see the new value");
+  assert($("resume").files.length === 1 && $("resume").files[0].name === "maria-cv.pdf", "the CV is not in the CV upload");
+  assert($("cover_file").files.length === 0, "the CV went into the cover letter upload");
+  assert($("li").value === DATA.answers.linkedin, "LinkedIn not filled");
+  assert($("web").value === "", `the same LinkedIn link went into a second field: "${$("web").value}"`);
+  assert($("oss").value === "", `"Open source contributions" got: "${$("oss").value}"`);
+  assert($("ethnicity").value === "", `"Ethnicity" got: "${$("ethnicity").value}"`);
+  assert($("relocation").value === "", `"Relocation assistance" got: "${$("relocation").value}"`);
+  assert($("why").value === DATA.cover_letter, "the cover letter is not in the motivation question");
+  assert(!window.submitted, "the form was submitted");
+  assert(report.cv === true, "report.cv");
+  assert(report.required === 1, `required fields left: ${report.required}, expected the work authorization`);
+  assert(report.skipped.includes("Are you legally authorized to work in Greece?"),
+    `the questions left are named as the page names them, not by key: ${JSON.stringify(report.skipped)}`);
+
+  const toast = gh.document.getElementById("__jobora_toast");
+  assert(toast, "no report box");
+  assert(!toast.querySelector("img"), "markup from a job ad was inserted into the page");
+  assert(toast.textContent.includes('<img src="x"'), "the company name is not shown as text");
+  // First and last name, phone, LinkedIn and the motivation question.
+  assert(toast.textContent.includes("Fields filled: 5"), `report box text: ${toast.textContent}`);
+  await wait(200);
+  assert(!window.injected, "a job ad ran code on the application page");
+
+  /* ── Lever-shaped form: the applicant's name, nobody else's ── */
+  const lever = await formPage(LEVER);
+  const field = (name) => lever.document.querySelector(`[name="${name}"]`);
+  lever.__joboraFill(structuredClone(DATA));
+  assert(field("company_name").value === "", `"Company name" got: "${field("company_name").value}"`);
+  assert(field("name").value === "Maria Papadopoulou", `"Full name" got: "${field("name").value}"`);
+  assert(field("university").value === "", `"Name of your university" got: "${field("university").value}"`);
+  assert(field("email").value === "maria@example.test", "email address");
+  assert(field("phoneNumber").value === "+30 690 000 0000", `"Phone number" got: "${field("phoneNumber").value}"`);
+  assert(field("location").value === "Athens, Greece", "current location");
+  assert(field("source").value === "A job board", "how did you hear");
+
+  /* ── Workable-shaped form: required groups, one question each ── */
+  const workable = await formPage(WORKABLE);
+  const workableReport = workable.__joboraFill({ ...structuredClone(DATA), texts: GREEK_TEXTS });
+  assert(workableReport.filled === 2, `filled ${workableReport.filled}`);
+  assert(workableReport.required === 1, `a group of radio buttons is one question: ${workableReport.required}`);
+  assert(workableReport.skipped.includes("Do you need visa sponsorship?")
+    && workableReport.skipped.includes("Where are you based?"), JSON.stringify(workableReport.skipped));
+  const greekToast = workable.document.getElementById("__jobora_toast").textContent;
+  assert(greekToast.includes("Πεδία που συμπληρώθηκαν: 2"), `the report box ignores the user's language: ${greekToast}`);
+
+  /* ── The button: the user's language, and Submit marks the application sent ── */
+  const chromeStub = `<script>
+    window.sent = []; window.alerts = [];
+    window.alert = (message) => alerts.push(message);
+    window.chrome = { runtime: { sendMessage(message, reply) {
+      sent.push(message);
+      const answer = message.type === "fillTexts" ? { ok: true, texts: parent.GREEK_TEXTS }
+        : message.type === "prefill" ? structuredClone(parent.DATA) : { ok: true };
+      setTimeout(() => reply && reply(answer), 0);
+    } } };
+  <\/script>`;
+  const page = await formPage(GREENHOUSE.replace('onsubmit="parent.submitted = true; return false"', 'onsubmit="return false"'),
+    { head: chromeStub, scripts: ["content/prefill.js", "content/button.js"] });
+  let button;
+  for (let n = 0; n < 50 && !(button = page.document.getElementById("__jobora_btn")); n++) await wait(20);
+  assert(button, "no Fill button on a form");
+  await wait(50);
+  assert(button.textContent === GREEK_TEXTS.button, `the button ignores the user's language: ${button.textContent}`);
+  button.click();
+  for (let n = 0; n < 50 && !page.document.getElementById("__jobora_toast"); n++) await wait(20);
+  assert(page.document.getElementById("first_name").value === "Maria", "the button did not fill the form");
+  const marked = () => page.sent.filter((m) => m.type === "markSent");
+  page.document.getElementById("phone").click();          // the user checks a field first
+  page.document.querySelector("button[type=submit]").click();
+  assert(marked().length === 1 && marked()[0].applicationId === "app-1",
+    `Submit after checking a field did not mark the application sent: ${JSON.stringify(page.sent)}`);
+  page.document.querySelector("button[type=submit]").click();
+  assert(marked().length === 1, "one fill marked the application sent twice");
+  assert(!page.alerts.length, `alerts: ${page.alerts.join("; ")}`);
+
+  result.textContent = "PASS: names, contact details, the CV and the cover letter go where they belong; nothing is "
+    + "overwritten or submitted; other people's names, ethnicity, relocation and open source questions stay empty; "
+    + "the report box shows job text as text, in the user's language, and names the questions left; "
+    + "Submit marks the application sent once, even after the user clicked a field first.";
+} catch (error) {
+  result.textContent = "FAIL: " + error.message + "\n" + error.stack;
+}
+</script>

@@ -1,5 +1,5 @@
-# Runs the CV parsing tests on every pull request and on every push to main,
-# so a change that breaks name or title detection shows up before it is merged.
+# Runs all tests (tests/*.test.mjs) on every pull request and on every push to main,
+# so a change that breaks CV reading or job matching shows up before it is merged.
 name: Tests
 
 on:
@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  cv-tests:
-    name: CV parsing tests
+  tests:
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
@@ -27,4 +27,9 @@ jobs:
           node-version: 22
 
       - name: Run the tests
-        run: node --test tests/cv.test.mjs
+        run: node --test "tests/*.test.mjs"
+
+      # The Python engine (jobora/) uses the standard library only, so the
+      # runner's own Python is enough.
+      - name: Run the Python engine's tests
+        run: python3 -m unittest discover -s tests

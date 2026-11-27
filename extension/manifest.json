@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobora — automatic job search",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Finds jobs that match you every day and fills in the application forms for you. Your CV never leaves your browser.",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -79,6 +79,10 @@
     "128": "icons/128.png"
   },
   "optional_host_permissions": [
+    "https://europa.eu/*",
+    "https://ec.europa.eu/*",
+    "https://www.jobfind.gr/*",
+    "https://www.xe.gr/*",
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",
     "*://*.reddit.com/*",

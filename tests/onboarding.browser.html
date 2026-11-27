@@ -4,6 +4,7 @@
 const result = document.querySelector("#result");
 window.testStorage = {};
 window.browserErrors = [];
+window.permissionRequests = [];
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 try {
   const base = new URL("../extension/", location.href).href;
@@ -17,7 +18,8 @@ try {
         set: async patch => Object.assign(parent.testStorage, structuredClone(patch))
       } },
       i18n: { getUILanguage: () => 'en' },
-      runtime: { getURL: path => '${base}' + path, sendMessage: async () => ({ ok: true }) }
+      runtime: { getURL: path => '${base}' + path, sendMessage: async () => ({ ok: true }) },
+      permissions: { request: async ({ origins }) => { parent.permissionRequests.push(origins); return true; } }
     };
   <` + `/script>`;
   const frame = document.querySelector("#onboarding");
@@ -174,6 +176,19 @@ try {
   assert(doc.querySelector("#cv-name").value === "Dimitra Mousounaki", "browser PDF reader did not recover name");
   assert(testStorage.profile.email === "dimitra.mousounaki@example.test", "browser PDF reader did not recover email");
   assert(atob(testStorage.cv.base64) === pdf, "PDF parsing changed the uploaded CV");
+
+  // An address in the CV header fills the location and puts the country first
+  // in "Where you can work", so remote jobs limited to other countries drop out.
+  await upload("Maria Papadopoulou\nSpata, Attica, Greece | maria@example.test | +30 694 123 4567");
+  assert(testStorage.profile.location === "Spata, Attica, Greece", "CV address did not fill the location");
+  assert(testStorage.profile.phone === "+30 694 123 4567", "CV phone was not saved");
+  assert(doc.querySelector("#cv-location")?.value === "Spata, Attica, Greece",
+    "the location is not shown, editable, with the other contact details");
+  const locationTags = [...doc.querySelectorAll('[data-tags="locations"] .t')]
+    .map((tag) => tag.firstChild.textContent.trim());
+  assert(JSON.stringify(locationTags) === JSON.stringify(["Greece", "Remote"]),
+    `locations should start from the CV's country, got ${JSON.stringify(locationTags)}`);
+
   frame.style.width = "320px";
   for (const code of ["en", "el", "es", "de", "fr", "it", "pt", "pl"]) {
     doc.querySelector("#uiLanguage").value = code;
@@ -194,7 +209,9 @@ try {
   await doc.querySelector("#finish").onclick();
   assertStep(4);
   assert(doc.querySelector("#open-app").style.display === "inline-flex", "search completion did not show the matches action");
+  assert(permissionRequests.length === 1 && permissionRequests[0].includes("https://europa.eu/*"),
+    "starting the search did not ask Chrome for the job portals' sites");
   assert(browserErrors.length === 0, browserErrors.join("; "));
-  result.textContent = "PASS: custom PDF scanner, original attachment, dark/light styling, mobile fit in all eight languages, named steps, progress state, heading focus, contact validation, inline errors, URL normalization, optional fields, correction, Continue, Back, Greek translation, Skip, storage, search completion; no browser errors.";
+  result.textContent = "PASS: custom PDF scanner, original attachment, dark/light styling, mobile fit in all eight languages, named steps, progress state, heading focus, contact validation, inline errors, URL normalization, optional fields, correction, Continue, Back, Greek translation, Skip, storage, address and country from the CV, portal permissions, search completion; no browser errors.";
 } catch (error) { result.textContent = "FAIL: " + error.stack + "\n" + browserErrors.join("; "); }
 </script>

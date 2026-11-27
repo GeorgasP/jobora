@@ -13,7 +13,8 @@ async function paint() {
     store.getJobs(), store.getApps(), store.getState(),
     chrome.runtime.sendMessage({ type: "matches" }),
   ]);
-  $("#m").textContent = res?.matches?.length ?? 0;
+  // All matches, not only the best ones the worker sends along.
+  $("#m").textContent = (res?.counts?.all ?? res?.matches?.length ?? 0).toLocaleString();
   $("#a").textContent = apps.length;
   $("#j").textContent = jobs.length;
 

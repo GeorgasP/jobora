@@ -4,6 +4,7 @@ import { ALL_INDUSTRIES, pickCompanies } from "./lib/companies.js";
 import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES } from "./lib/i18n.js";
+import { PORTAL_ORIGINS } from "./lib/portals.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -92,12 +93,18 @@ async function handleFile(file) {
       : t("settings.cv.unreadable", { kb: Math.round(cv.size / 1024) });
     drop.innerHTML = `<div class="ic">✅</div><b>${esc(cv.filename)}</b><span>${esc(sub)}</span>`;
 
+    // Each detail read from the CV, editable: [profile field, input type, autocomplete].
+    // Email, phone and location always show, to be filled in when the CV lacks
+    // them; the location decides which remote jobs are open to the user.
     const rows = [
       ["email", "email", "email"],
       ["phone", "tel", "tel"],
+      ["location", "text", "address-level2"],
       ["linkedin", "url", "url"],
       ["github", "url", "url"],
-    ].filter(([key]) => key === "email" || key === "phone" || guess[key]);
+    ].filter(([key]) => ["email", "phone", "location"].includes(key) || guess[key]);
+    // Only these input types have a format to check, and an error message for it.
+    const checked = (type) => type === "email" || type === "url";
 
     $("#found").innerHTML = `<div class="found"><div data-i18n="onboarding.foundTitle" style="font-size:12px;color:var(--fg-3);text-transform:uppercase;
            letter-spacing:.7px;font-weight:600;margin-bottom:8px">${esc(t("onboarding.foundTitle"))}</div>
@@ -109,15 +116,22 @@ async function handleFile(file) {
            <label for="cv-${key}" ${key === "github" ? "" : `data-i18n="onboarding.found.${key}"`}>${key === "github" ? "GitHub" : esc(t(`onboarding.found.${key}`))}</label>
            <div class="contact-field">
              <input id="cv-${key}" class="txt" type="${type}" autocomplete="${autocomplete}" value="${esc(guess[key])}"
-               ${type === "tel" ? "" : `aria-describedby="cv-${key}-error"`}>
-             ${type === "tel" ? "" : `<p id="cv-${key}-error" class="field-error" data-i18n="onboarding.invalid.${type}" hidden>${esc(t(`onboarding.invalid.${type}`))}</p>`}
+               ${checked(type) ? `aria-describedby="cv-${key}-error"` : ""}>
+             ${checked(type) ? `<p id="cv-${key}-error" class="field-error" data-i18n="onboarding.invalid.${type}" hidden>${esc(t(`onboarding.invalid.${type}`))}</p>` : ""}
            </div></div>`).join("")}
          ${!guess.name && !rows.some(([key]) => guess[key]) ? `<div class="row"><span data-i18n="onboarding.foundNothing">${esc(t("onboarding.foundNothing"))}</span></div>` : ""}</div>`;
 
     await store.saveProfile({
       name: guess.name || "", email: guess.email || "", phone: guess.phone || "",
-      linkedin: guess.linkedin || "", github: guess.github || "",
+      location: guess.location || "", linkedin: guess.linkedin || "", github: guess.github || "",
     });
+    // Where the user lives decides which remote jobs are open to them, so the
+    // locations start from their country instead of "Remote" alone, unless
+    // they have already chosen something else.
+    const locations = tagValues("locations");
+    if (guess.country && locations.length === 1 && locations[0] === "Remote") {
+      fields.locations.values = [guess.country, "Remote"];
+    }
     $("#next1").disabled = false;
   } catch (err) {
     drop.innerHTML = `<div class="ic">⚠️</div><b>${esc(t("onboarding.readFail"))}</b><span>${esc(err.message)}</span>`;
@@ -150,7 +164,7 @@ async function continueFromCV() {
     return;
   }
   const corrections = {};
-  for (const key of ["name", "email", "phone", "linkedin", "github"]) {
+  for (const key of ["name", "email", "phone", "location", "linkedin", "github"]) {
     const input = $(`#cv-${key}`);
     if (input) corrections[key] = guess[key] = input.value.trim();
   }
@@ -195,6 +209,9 @@ $$("#industries .pick").forEach((p) => p.onclick = () => {
 $("#back3").onclick = () => step(2);
 
 $("#finish").onclick = async () => {
+  // First, while the click still counts as the user's: Chrome only shows its
+  // permission question during one. Saying no just leaves the portals out.
+  await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
   const industries = $$("#industries .pick.on").map((p) => p.dataset.i);
   await store.saveProfile({
     titles: tagValues("titles"),

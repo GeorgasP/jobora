@@ -6,6 +6,8 @@ import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES, currentLanguage } from "./lib/i18n.js";
+import { PORTAL_ORIGINS, portalsAllowed } from "./lib/portals.js";
+import { MATCH_FILTERS, countMatches } from "./lib/filters.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -65,10 +67,17 @@ function setupCvDragAndDrop() {
 }
 
 let profile = null, matches = [], apps = [], state = null, filter = "all";
+// How many matches there are in all, per quick filter. `matches` holds only
+// the best of them (see the "matches" message in background.js).
+let matchCounts = countMatches([]);
+const CARDS_SHOWN = 100;
 // Λεξιλόγιο από τις κατεβασμένες αγγελίες — έτσι οι προτάσεις είναι η γραφή
 // που χρησιμοποιούν όντως οι εταιρείες.
 let vocab = { titles: [], locations: [] };
 const fields = {};
+
+// Profile fields a CV can fill in. All but github have an input with the same id in Settings.
+const CV_CONTACT_FIELDS = ["name", "email", "phone", "location", "linkedin", "github"];
 
 const STAGES = [
   { key: "prepared", color: "var(--fg-3)" },
@@ -83,8 +92,9 @@ const stageName = (key) => t(`stage.${key}`);
 // Τα ακρωνύμια θέλουν χειροκίνητη γραφή· στα υπόλοιπα αρκεί κεφαλαίο αρχικό.
 // Οι όροι του Adzuna ζητούν κάθε αγγελία τους να φέρει «Jobs by Adzuna».
 // Είναι το τίμημα του δωρεάν κλειδιού και είναι δίκαιο: τα δεδομένα δικά τους.
-const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs",
-                        skywalker: "Skywalker.gr", psf: "ΠΣΦ", ordino: "Ordino" };
+const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs", eures: "EURES",
+                        skywalker: "Skywalker.gr", jobfind: "Jobfind.gr", xe: "xe.gr",
+                        psf: "ΠΣΦ", ordino: "Ordino" };
 const sourceLabel = (s) => SOURCE_LABELS[s] || s;
 
 const INDUSTRY_LABELS = { ai: "AI", hr: "HR", saas: "SaaS", fintech: "Fintech" };
@@ -117,17 +127,22 @@ async function load({ forms = true } = {}) {
   [profile, apps, state] = await Promise.all([store.getProfile(), store.getApps(), store.getState()]);
   const res = await send({ type: "matches" });
   matches = res?.matches || [];
+  // The worker sends the best matches and counts all of them.
+  matchCounts = res?.counts || countMatches(matches);
 
   const allJobs = await store.getJobs();
   vocab = buildVocabulary(allJobs, { industries: profile.industries });
 
-  if (!profile.name || !profile.email) {
+  // Fill contact details the profile is missing from the stored CV. This also
+  // gives existing users a home location, which decides which remote jobs
+  // are open to them.
+  if (CV_CONTACT_FIELDS.some((field) => !profile[field])) {
     const cv = await store.getCV();
     if (cv?.text) {
       const found = guessFromCV(cv.text);
       const patch = {};
-      for (const k of ["name", "email", "phone", "linkedin", "github"]) {
-        if (!profile[k] && found[k]) patch[k] = found[k];
+      for (const field of CV_CONTACT_FIELDS) {
+        if (!profile[field] && found[field]) patch[field] = found[field];
       }
       if (Object.keys(patch).length) profile = await store.saveProfile(patch);
     }
@@ -143,9 +158,9 @@ async function load({ forms = true } = {}) {
   who.onclick = () => goTo("profile");
   const jobs = allJobs;
   $("#who-sub").textContent = t("nav.jobsTracked", { count: jobs.length });
-  $("#nav-matches").textContent = matches.length;
+  $("#nav-matches").textContent = matchCounts.all;
   $("#nav-apps").textContent = apps.length;
-  $("#sub").textContent = t("header.matches.sub", { count: matches.length, when: ago(state.lastScan) });
+  $("#sub").textContent = t("header.matches.sub", { count: matchCounts.all, when: ago(state.lastScan) });
 
   renderStats(jobs.length);
   renderCards();
@@ -194,7 +209,7 @@ function renderStats(jobCount) {
   $("#stats").innerHTML = `
     <div class="stat"><div class="k">${esc(t("stats.jobsTracked"))}</div><div class="v">${jobCount.toLocaleString()}</div>
       <div class="d">${newLine}</div></div>
-    <div class="stat"><div class="k">${esc(t("stats.matches"))}</div><div class="v">${matches.length}</div>
+    <div class="stat"><div class="k">${esc(t("stats.matches"))}</div><div class="v">${matchCounts.all.toLocaleString()}</div>
       <div class="d">${esc(t("stats.minScore", { n: profile.minScore }))}</div></div>
     <div class="stat"><div class="k">${esc(t("stats.applications"))}</div><div class="v">${apps.length}</div>
       <div class="d">${esc(t("stats.sentReady", { sent, ready: apps.length - sent }))}</div></div>
@@ -205,13 +220,9 @@ function renderStats(jobCount) {
 const ringColor = (s) => (s >= 80 ? "var(--ok)" : s >= 65 ? "var(--warn)" : "var(--fg-3)");
 
 function visibleMatches() {
-  const today = Date.now() - 36 * 3600 * 1000;
-  return matches.filter((m) => {
-    if (filter === "remote") return m.remote;
-    if (filter === "today") return m.postedAt && Date.parse(m.postedAt) > today;
-    if (filter === "salary") return m.salaryMin || m.salaryMax;
-    return true;
-  });
+  const keeps = MATCH_FILTERS[filter] || MATCH_FILTERS.all;
+  const now = Date.now();
+  return matches.filter((m) => keeps(m, now));
 }
 
 /* Εταιρεία, τοποθεσία, πηγή — με τελείες ανάμεσα, αλλά μόνο σε ό,τι υπάρχει.
@@ -230,8 +241,8 @@ function metaLine(m) {
 }
 
 function renderCards() {
-  const list = visibleMatches().slice(0, 100);
-  $("#count").textContent = t("filter.showing", { shown: list.length, total: matches.length });
+  const list = visibleMatches().slice(0, CARDS_SHOWN);
+  $("#count").textContent = t("filter.showing", { shown: list.length, total: matchCounts[filter] ?? matchCounts.all });
 
   if (!list.length) {
     const scanning = $("#scan").disabled;
@@ -454,8 +465,30 @@ $("#photo-clear").onclick = async () => {
 
 $("#cv-pick").onclick = () => $("#cv-file").click();
 
-/* Το βιογραφικό φεύγει, τα στοιχεία που συμπλήρωσε μένουν: το όνομα και το
-   τηλέφωνό σου δεν παύουν να ισχύουν επειδή άλλαξες αρχείο. */
+/**
+ * Offers the job titles found in a newly uploaded CV, one click each. A new
+ * CV often means new work to look for, but the titles stay the user's
+ * choice, so nothing is replaced without a click.
+ */
+function offerTitlesFromCV(titles = []) {
+  const box = $("#titles-sug");
+  const fresh = titles.filter((title) => !tagValues("titles").includes(title));
+  box.innerHTML = fresh.length
+    ? `<span>${esc(t("onboarding.fromCV"))}</span>` +
+      fresh.map((title) => `<button data-t="${esc(title)}">+ ${esc(title)}</button>`).join("")
+    : "";
+  box.querySelectorAll("button").forEach((button) => {
+    button.onclick = () => {
+      fields.titles.values = [...tagValues("titles"), button.dataset.t];
+      button.remove();
+      if (!box.querySelector("button")) box.innerHTML = "";
+      scheduleSave();
+    };
+  });
+}
+
+/* Removing the CV keeps the details it filled in: your name and phone don't
+   stop being yours because you changed the file. */
 $("#cv-clear").onclick = async () => {
   await store.deleteCV();
   $("#cv-file").value = "";
@@ -470,8 +503,8 @@ $("#cv-file").onchange = async (e) => {
     await store.saveCV(cv);
     const guess = guessFromCV(cv.text);
     const patch = {};
-    for (const k of ["name", "email", "phone", "linkedin", "github"]) {
-      if (guess[k] && !$("#" + k)?.value) patch[k] = guess[k];
+    for (const field of CV_CONTACT_FIELDS) {
+      if (guess[field] && !$("#" + field)?.value) patch[field] = guess[field];
     }
     if (Object.keys(patch).length) {
       profile = await store.saveProfile(patch);
@@ -480,6 +513,7 @@ $("#cv-file").onchange = async (e) => {
       toast(t(cv.text ? "toast.cvSaved" : "toast.cvSavedNoText"), cv.text ? "ok" : "");
     }
     await load();
+    offerTitlesFromCV(guess.titles);
   } catch (err) {
     toast(t("toast.cvFailed", { error: err.message }), "bad");
   }
@@ -661,7 +695,7 @@ $("#scan").onclick = async () => {
 };
 
 const TITLES = {
-  matches: () => [t("nav.matches"), t("header.matches.sub", { count: matches.length, when: ago(state.lastScan) })],
+  matches: () => [t("nav.matches"), t("header.matches.sub", { count: matchCounts.all, when: ago(state.lastScan) })],
   pipeline: () => [t("nav.pipeline"), t("header.pipeline.sub", { count: apps.length })],
   profile: () => [t("nav.profile"), t("header.profile.sub")],
   settings: () => [t("nav.settings"), t("header.settings.sub")],
@@ -781,6 +815,46 @@ async function setupSocialToggle() {
   };
 }
 
+/* ── Job portals that need the user's permission ─────────────
+   EURES and the Greek boards ask for their sites here instead of in the
+   manifest (see lib/portals.js), so an update never turns the extension off. */
+const PORTALS_OFFER_DISMISSED = "portalsOfferDismissed";
+
+/** Shows whether the portals are on, and offers them above the matches until used or dismissed. */
+async function refreshPortals() {
+  const allowed = await portalsAllowed().catch(() => false);
+  $("#tog-portals")?.classList.toggle("on", allowed);
+  const { [PORTALS_OFFER_DISMISSED]: dismissed } = await chrome.storage.local.get(PORTALS_OFFER_DISMISSED);
+  const offer = $("#portals-offer");
+  if (offer) offer.hidden = allowed || Boolean(dismissed);
+}
+
+/** Asks Chrome for the portals' sites. Chrome only asks during a click, so call it from one. */
+async function turnPortalsOn() {
+  const granted = await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
+  toast(t(granted ? "settings.portals.on" : "settings.portals.denied"), granted ? "ok" : "warn");
+  await refreshPortals();
+}
+
+function setupPortals() {
+  const toggle = $("#tog-portals");
+  if (toggle) {
+    toggle.onclick = async (e) => {
+      e.stopPropagation();
+      if (!toggle.classList.contains("on")) return turnPortalsOn();
+      await chrome.permissions.remove({ origins: PORTAL_ORIGINS }).catch(() => {});
+      toast(t("settings.portals.off"), "ok");
+      await refreshPortals();
+    };
+  }
+  $("#portals-on")?.addEventListener("click", turnPortalsOn);
+  $("#portals-later")?.addEventListener("click", async () => {
+    await chrome.storage.local.set({ [PORTALS_OFFER_DISMISSED]: true });
+    $("#portals-offer").hidden = true;
+  });
+  refreshPortals();
+}
+
 /* ── Γλώσσα διεπαφής ──────────────────────────────────────── */
 function fillLanguageSelect(active) {
   const select = $("#uiLanguage");
@@ -800,6 +874,7 @@ store.getProfile().then(async (p) => {
   if (!p.uiLanguage) await store.saveProfile({ uiLanguage: active });
   fillLanguageSelect(active);
   setupSocialToggle();
+  setupPortals();
   watchSettings();
   if (!(await store.isOnboarded())) location.href = "onboarding.html";
   else {

@@ -23,6 +23,9 @@ OUTPUT_DIR = ROOT / "output"
 PACKS_DIR = OUTPUT_DIR / "applications"
 
 DB_PATH = DATA_DIR / "jobora.db"
+# The database's name until the product was renamed on 2026-09-23. A data
+# folder from before then still holds it; db.connect() takes it over.
+LEGACY_DB_PATH = DATA_DIR / "jobhunter.db"
 PROFILE_PATH = DATA_DIR / "profile.json"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 

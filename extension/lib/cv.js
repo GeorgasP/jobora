@@ -1,20 +1,22 @@
 import { ALL_PROFESSIONS } from "./professions.js";
+import { countryLabel, placesIn } from "./places.js";
+import { detectFormat, docText, rtfText, zipDocumentText } from "./documents.js";
 
 /*
- * CV upload + parsing, χωρίς καμία εξωτερική βιβλιοθήκη.
+ * Reading the CV the user uploads, with no outside library, and guessing what
+ * the onboarding needs from it.
  *
- * PDF  : αποσυμπίεση των FlateDecode streams με DecompressionStream και
- *        εξαγωγή των Tj/TJ strings.
- * DOCX : το .docx είναι zip — διαβάζουμε το word/document.xml απευθείας.
- * TXT/MD: ό,τι βλέπεις.
+ * PDF is read here: the pages' content streams, decompressed with
+ * DecompressionStream, and their Tj/TJ strings mapped to text through each
+ * font's ToUnicode CMap. DOCX, ODT, RTF and the old .doc are read in
+ * documents.js; TXT and MD are taken as they are.
  *
- * Από το κείμενο βγάζουμε όνομα, email, τηλέφωνο, LinkedIn και πιθανούς
- * τίτλους θέσεων, ώστε το onboarding να είναι σχεδόν αυτόματο.
+ * From the text we guess the name, e-mail, phone, home location, LinkedIn,
+ * GitHub and likely job titles, so onboarding is almost automatic.
  */
 
 export const MAX_CV_BYTES = 8 * 1024 * 1024;
 
-const dec = new TextDecoder("utf-8", { fatal: false });
 const latin = new TextDecoder("latin1");
 
 async function inflate(bytes, format) {
@@ -91,42 +93,60 @@ async function objectStream(bytes, raw, from, to) {
 async function pdfText(bytes) {
   const raw = latin.decode(bytes);
 
-  // 1. Ευρετήριο αντικειμένων
+  // 1. Every object: those written plainly in the file, and those packed into
+  //    compressed object streams (PDF 1.5+), where Word and others keep fonts.
   const objects = new Map();
   for (const m of raw.matchAll(/(\d+)\s+0\s+obj\b/g)) {
     const start = m.index + m[0].length;
     const end = raw.indexOf("endobj", start);
     if (end > 0) objects.set(Number(m[1]), { start, end });
   }
+  const packed = await objectsInObjectStreams(bytes, raw, objects);
+  /** An object's dictionary text, wherever the object is stored. */
+  const declaration = (num) => {
+    if (packed.has(num)) return packed.get(num);
+    const span = objects.get(num);
+    if (!span) return "";
+    const streamAt = raw.indexOf("stream", span.start);
+    return raw.slice(span.start, streamAt > 0 && streamAt < span.end ? streamAt : span.end);
+  };
+  const allNumbers = [...new Set([...objects.keys(), ...packed.keys()])];
 
-  // 2. CMaps ανά αντικείμενο-γραμματοσειράς
+  // 2. The ToUnicode CMap of each font object
   const cmapCache = new Map();
   const cmapFor = async (fontObjNum) => {
     if (cmapCache.has(fontObjNum)) return cmapCache.get(fontObjNum);
     let map = null;
-    const font = objects.get(fontObjNum);
-    if (font) {
-      const decl = raw.slice(font.start, font.end);
-      const ref = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(decl);
-      const target = ref && objects.get(Number(ref[1]));
-      if (target) {
-        const data = await objectStream(bytes, raw, target.start, target.end);
-        if (data) map = parseCMap(latin.decode(data));
-      }
+    const ref = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(declaration(fontObjNum));
+    const target = ref && objects.get(Number(ref[1]));
+    if (target) {
+      const data = await objectStream(bytes, raw, target.start, target.end);
+      if (data) map = parseCMap(latin.decode(data));
     }
     cmapCache.set(fontObjNum, map);
     return map;
   };
 
-  // 3. Όνομα πόρου (/F1) → αντικείμενο γραμματοσειράς, από κάθε /Font << … >>
+  // 3. Font resource names (/F1) → font objects. Each page has its own; the
+  //    file-wide map is the fallback for content that names fonts elsewhere.
+  const fontsIn = (text) => {
+    const fonts = new Map();
+    const inline = /\/Font\s*<<([\s\S]{0,4000}?)>>/.exec(text);
+    const referenced = /\/Font\s+(\d+)\s+0\s+R/.exec(text);
+    const body = inline ? inline[1] : referenced ? declaration(Number(referenced[1])) : "";
+    for (const e of body.matchAll(/\/([A-Za-z0-9_.#+-]+)\s+(\d+)\s+0\s+R/g)) fonts.set(e[1], Number(e[2]));
+    return fonts;
+  };
   const fontByName = new Map();
-  for (const block of raw.matchAll(/\/Font\s*<<([\s\S]{0,4000}?)>>/g)) {
-    for (const e of block[1].matchAll(/\/([A-Za-z0-9_.#-]+)\s+(\d+)\s+0\s+R/g)) {
-      fontByName.set(e[1], Number(e[2]));
-    }
-  }
+  for (const num of allNumbers) for (const [name, ref] of fontsIn(declaration(num))) fontByName.set(name, ref);
+  const fontsOfPage = (page) => {
+    const own = fontsIn(page);
+    if (own.size) return own;
+    const resources = /\/Resources\s+(\d+)\s+0\s+R/.exec(page);
+    return resources ? fontsIn(declaration(Number(resources[1]))) : new Map();
+  };
 
-  // 4. Τα content streams, με ενεργή γραμματοσειρά ανά σημείο
+  // Turning a content stream's strings into text, with the font's CMap when it has one.
   const decodeWithMap = (codes, map) => {
     let out = "";
     for (let i = 0; i + 1 < codes.length; i += 2) {
@@ -177,10 +197,9 @@ async function pdfText(bytes) {
   };
 
   const chunks = [];
-  // Τα Tm/Td δεν σημαίνουν πάντα νέα γραμμή — ο Chrome τα χρησιμοποιεί και για
-  // μετακίνηση μέσα στην ίδια γραμμή. Κοιτάμε αν άλλαξε το Y.
+  // The content-stream operators that matter for text, as one pattern.
   const TOKEN = new RegExp([
-    /\/([A-Za-z0-9_.#-]+)\s+[\d.]+\s+Tf/,          // 1: επιλογή γραμματοσειράς
+    /\/([A-Za-z0-9_.#-]+)\s+[\d.]+\s+Tf/,          // 1: font selection
     /<([0-9A-Fa-f\s]+)>/,                          // 2: hex string
     /\((?:\\.|[^\\()])*\)/,                        // literal string
     /((?:-?[\d.]+\s+){6})Tm/,                      // 3: text matrix
@@ -189,16 +208,11 @@ async function pdfText(bytes) {
     /T\*|ET|BT/,
   ].map((r) => r.source).join("|"), "g");
 
-  for (const [, span] of objects) {
-    const decl = raw.slice(span.start, Math.min(span.end, span.start + 400));
-    if (/\/(Image|Font|FontFile|ToUnicode|XObject\s*<<)/.test(decl) && !/\/Contents/.test(decl)) {
-      if (!/\/Length/.test(decl) || /\/Subtype\s*\/Image/.test(decl)) continue;
-    }
-    const data = await objectStream(bytes, raw, span.start, span.end);
-    if (!data) continue;
+  // Td/Tm do not always start a new line: Chrome also uses them to move within
+  // a line. A new line is when the baseline (Y) changes.
+  const readContent = async (data, fonts) => {
     const text = latin.decode(data);
-    if (!/\bTj\b|\bTJ\b|\bTf\b/.test(text)) continue;
-
+    if (!/\bTj\b|\bTJ\b|\bTf\b/.test(text)) return;
     let map = null;
     let lastY = null, lastX = null;
 
@@ -212,7 +226,7 @@ async function pdfText(bytes) {
     for (const g of text.matchAll(TOKEN)) {
       const token = g[0];
       if (g[1] !== undefined) {                    // /F1 12 Tf
-        map = await cmapFor(fontByName.get(g[1]));
+        map = await cmapFor(fonts.get(g[1]) ?? fontByName.get(g[1]));
         continue;
       }
       if (g[3] !== undefined) {                    // a b c d e f Tm
@@ -237,12 +251,36 @@ async function pdfText(bytes) {
       else if (token === "ET" || token === "BT") { lastX = null; }
     }
     chunks.push("\n");
-    if (chunks.length > 60000) break;
+  };
+
+  // 4. Read the pages' content, page by page. Only those streams hold the
+  //    text: reading every stream in the file as text also reads embedded
+  //    font programs and images, which turn into thousands of junk characters.
+  const pages = pagesInOrder(declaration, allNumbers);
+  for (const page of pages) {
+    const fonts = fontsOfPage(page.text);
+    for (const ref of contentRefs(page.text, declaration)) {
+      const span = objects.get(ref);
+      const data = span && await objectStream(bytes, raw, span.start, span.end);
+      if (data) await readContent(data, fonts);
+      if (chunks.length > 60000) break;
+    }
+  }
+  // A file without a readable page tree: fall back to every stream that draws text.
+  if (!pages.length) {
+    for (const [, span] of objects) {
+      const decl = raw.slice(span.start, Math.min(span.end, span.start + 400));
+      if (/\/(Image|Font|FontFile|ToUnicode|XObject\s*<<)/.test(decl) && !/\/Contents/.test(decl)) {
+        if (!/\/Length/.test(decl) || /\/Subtype\s*\/Image/.test(decl)) continue;
+      }
+      const data = await objectStream(bytes, raw, span.start, span.end);
+      if (data) await readContent(data, new Map());
+      if (chunks.length > 60000) break;
+    }
   }
 
   return chunks.join("")
-    // Τα PDF γράφουν «ﬁ» ως ένα glyph — χωρίς κανονικοποίηση, το «ﬁntech»
-    // δεν ταιριάζει ποτέ με αναζήτηση για «fintech».
+    // PDFs write "ﬁ" as one glyph; without normalising, "ﬁntech" never matches "fintech".
     .normalize("NFKC")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n[ \t]+/g, "\n")
@@ -250,34 +288,70 @@ async function pdfText(bytes) {
     .trim();
 }
 
-/* ── DOCX (zip → word/document.xml) ───────────────────────── */
-async function docxText(bytes) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const SIG = 0x04034b50;
-
-  for (let i = 0; i < bytes.length - 4; i++) {
-    if (view.getUint32(i, true) !== SIG) continue;
-    const method = view.getUint16(i + 8, true);
-    const compSize = view.getUint32(i + 18, true);
-    const nameLen = view.getUint16(i + 26, true);
-    const extraLen = view.getUint16(i + 28, true);
-    const nameStart = i + 30;
-    const name = dec.decode(bytes.subarray(nameStart, nameStart + nameLen));
-    if (name !== "word/document.xml") continue;
-
-    const dataStart = nameStart + nameLen + extraLen;
-    const data = bytes.subarray(dataStart, dataStart + (compSize || bytes.length - dataStart));
-    const xmlBytes = method === 0 ? data : await inflate(data, "deflate-raw");
-    const xml = dec.decode(xmlBytes);
-    return xml
-      .replace(/<\/w:p>/g, "\n")
-      .replace(/<w:tab[^>]*\/>/g, " ")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-      .replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+/**
+ * Objects packed into compressed object streams (/Type /ObjStm, PDF 1.5+),
+ * as number → dictionary text. The stream starts with "number offset" pairs.
+ */
+async function objectsInObjectStreams(bytes, raw, objects) {
+  const found = new Map();
+  for (const [, span] of objects) {
+    const head = raw.slice(span.start, Math.min(span.end, span.start + 300));
+    if (!/\/Type\s*\/ObjStm/.test(head)) continue;
+    const count = Number(/\/N\s+(\d+)/.exec(head)?.[1]);
+    const first = Number(/\/First\s+(\d+)/.exec(head)?.[1]);
+    const data = count && first && await objectStream(bytes, raw, span.start, span.end);
+    if (!data) continue;
+    const text = latin.decode(data);
+    const index = text.slice(0, first).trim().split(/\s+/).map(Number);
+    for (let i = 0; i < count; i++) {
+      const offset = index[2 * i + 1];
+      const next = i + 1 < count ? index[2 * i + 3] : text.length - first;
+      if (Number.isFinite(offset)) found.set(index[2 * i], text.slice(first + offset, first + next));
+    }
   }
-  return "";
+  return found;
 }
+
+/**
+ * The page objects in reading order, from the catalog's page tree, as
+ * { num, text }. Falls back to every page object in file order when the tree
+ * can't be followed, and is empty for files with no pages at all.
+ */
+function pagesInOrder(declaration, numbers) {
+  const pages = [];
+  const seen = new Set();
+  const visit = (num, depth = 0) => {
+    if (seen.has(num) || depth > 50) return;
+    seen.add(num);
+    const text = declaration(num);
+    if (/\/Type\s*\/Pages\b/.test(text)) {
+      const kids = /\/Kids\s*\[([^\]]*)\]/.exec(text)?.[1] || "";
+      for (const kid of kids.matchAll(/(\d+)\s+0\s+R/g)) visit(Number(kid[1]), depth + 1);
+    } else if (/\/Type\s*\/Page\b/.test(text)) {
+      pages.push({ num, text });
+    }
+  };
+  const catalog = numbers.find((num) => /\/Type\s*\/Catalog\b/.test(declaration(num)));
+  const root = catalog !== undefined && /\/Pages\s+(\d+)\s+0\s+R/.exec(declaration(catalog));
+  if (root) visit(Number(root[1]));
+  if (pages.length) return pages;
+  return numbers
+    .filter((num) => /\/Type\s*\/Page\b/.test(declaration(num)) && !/\/Type\s*\/Pages\b/.test(declaration(num)))
+    .map((num) => ({ num, text: declaration(num) }));
+}
+
+/** The content stream objects of a page: /Contents N 0 R, an array, or a reference to an array. */
+function contentRefs(page, declaration) {
+  const single = /\/Contents\s+(\d+)\s+0\s+R/.exec(page);
+  const array = /\/Contents\s*\[([^\]]*)\]/.exec(page);
+  let list = array ? array[1] : "";
+  if (!list && single) {
+    const target = declaration(Number(single[1])).trim();
+    list = target.startsWith("[") ? target : `${single[1]} 0 R`;
+  }
+  return [...list.matchAll(/(\d+)\s+0\s+R/g)].map((m) => Number(m[1]));
+}
+
 
 const toBase64 = (bytes) => {
   let bin = "";
@@ -288,7 +362,48 @@ const toBase64 = (bytes) => {
   return btoa(bin);
 };
 
-/** Διαβάζει το αρχείο που ανέβασε ο χρήστης. */
+// The CV formats readCV understands, by extension, for the file picker and the
+// type stored with the CV. The format itself is judged by the file's content.
+export const CV_FORMATS = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  odt: "application/vnd.oasis.opendocument.text",
+  rtf: "application/rtf",
+  txt: "text/plain",
+  md: "text/markdown",
+};
+
+/** Text of plain-text files: UTF-8, or Windows-1253/1252 for older Greek and Western files. */
+function plainText(bytes) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    const greek = new TextDecoder("windows-1253").decode(bytes);
+    return /[Α-ω]/.test(greek) ? greek : new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
+// Extensions that promise a document format. A file named like one but holding
+// none of them is damaged or not what it says, and read as text it would be noise.
+const DOCUMENT_EXTENSIONS = new Set(["pdf", "docx", "doc", "odt", "rtf"]);
+
+/** The text of a CV file, whatever its format; "" when it holds no readable text. */
+async function cvText(bytes, ext) {
+  switch (detectFormat(bytes)) {
+    case "pdf": return pdfText(bytes);
+    case "zip": return zipDocumentText(bytes);
+    case "rtf": return rtfText(latin.decode(bytes));
+    case "ole": return docText(bytes);
+    default: return DOCUMENT_EXTENSIONS.has(ext) ? "" : plainText(bytes);
+  }
+}
+
+/**
+ * Reads the CV the user uploaded. The file is always kept as it is, to attach
+ * to applications; the text is what we could read out of it, "" if nothing
+ * (a scanned PDF, an image, a password-protected document).
+ */
 export async function readCV(file) {
   if (file.size > MAX_CV_BYTES) throw new Error("File is larger than 8 MB");
 
@@ -297,16 +412,17 @@ export async function readCV(file) {
 
   let text = "";
   try {
-    if (ext === "pdf") text = await pdfText(bytes);
-    else if (ext === "docx") text = await docxText(bytes);
-    else text = dec.decode(bytes);
+    text = await cvText(bytes, ext);
   } catch (e) {
+    // The file is still kept and attached; only the text is missing. The
+    // warning says why, for whoever looks at the extension's console.
+    console.warn(`Jobora: could not read text from ${file.name} —`, e);
     text = "";
   }
 
   return {
     filename: file.name,
-    mime: file.type || (ext === "pdf" ? "application/pdf" : "application/octet-stream"),
+    mime: file.type || CV_FORMATS[ext] || "application/octet-stream",
     base64: toBase64(bytes),
     text: text.slice(0, 20000),
     size: file.size,
@@ -316,7 +432,6 @@ export async function readCV(file) {
 
 /* ── What we can guess from the text ─────────────────────── */
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]*[\w]/;
-const PHONE_RE = /(\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3}[\s.-]?\d{3,4}/;
 const LINKEDIN_RE = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[\w\-%]+/i;
 const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w\-]+/i;
 
@@ -344,8 +459,15 @@ const NON_NAME_WORDS = new Set((
   "street road avenue city country phone telephone email linkedin github native fluent intermediate " +
   "excellent strong team player communication available upon request citizen citizenship nationality " +
   "authorization eligible permit the and with for of in at " +
+  // Section headings ("About me", "Key achievements") in the app's languages.
+  "about myself overview highlights achievements accomplishments projects competencies strengths " +
+  "volunteering volunteer portfolio publications activities memberships tools technologies " +
   "βιογραφικο σημειωμα εκπαιδευση καταρτιση πιστοποιηση σεμιναριο σεμιναρια πτυχιο εμπειρια " +
-  "επαγγελματικη δεξιοτητες γλωσσες συστασεις επικοινωνια στοιχεια διευθυνση τηλεφωνο"
+  "επαγγελματικη δεξιοτητες γλωσσες συστασεις επικοινωνια στοιχεια διευθυνση τηλεφωνο " +
+  "σχετικα προφιλ ικανοτητες δραστηριοτητες ενδιαφεροντα εθελοντισμος " +
+  "uber mich berufserfahrung ausbildung kenntnisse sprachen lebenslauf " +
+  "propos competences formation langues loisirs sobre experiencia formacion idiomas " +
+  "esperienza competenze lingue doswiadczenie umiejetnosci jezyki formacao"
 ).split(/\s+/));
 const PROFESSION_NAMES = new Set(COMMON_TITLES.map(foldName));
 const NAME_WORD = /^[\p{L}\p{M}]+(?:['’.-][\p{L}\p{M}]+)*\.?$/u;
@@ -397,6 +519,16 @@ function looksLikeJobTitle(foldedWords) {
   return MULTI_WORD_TITLES.some((title) => ` ${phrase} `.includes(` ${title} `));
 }
 
+/**
+ * True when every word is a place on its own ("Zurich Switzerland", "Athens
+ * Greece"): an address line, not a person. A single place word inside a name
+ * keeps it a name: "Sofia Andersson", "Athina Papadopoulou".
+ */
+const looksLikePlace = (foldedWords) => foldedWords.every((word) => {
+  const found = placesIn(word);
+  return found.countries.size || found.cities.size || found.regions.size;
+});
+
 // Evidence that a phrase is the applicant's name, in points. A label ("Name:")
 // or a match with the e-mail or LinkedIn handle is strong evidence; layout
 // clues (capitals, position, nearby contact details) are weak on their own.
@@ -404,13 +536,18 @@ const NAME_EVIDENCE = {
   labelled: 12,              // "Name: Dimitra Mousounaki"
   matchesHandle: 10,         // dimitra.mousounaki@… or linkedin.com/in/dmousounaki
   capitalised: 3,            // every word starts with a capital letter
-  firstLine: 3,
-  nearTop: 2,                // within NEAR_TOP_LINES lines, but not the first one
   nearContact: 2,            // within NEAR_CONTACT_LINES of the e-mail, phone or LinkedIn
   joinedFromTwoLines: -0.5,  // first and last name drawn on separate lines
 };
+// The name sits at the top of a CV. The first line counts most and each line
+// below it a little less, so a heading such as "ABOUT ME" halfway down the
+// page can't tie with the name.
+const POSITION_POINTS = [5, 4, 3, 2, 2, 2];   // lines 1 to 6
+const LATER_LINE_POINTS = 1;                   // lines 7 to NEAR_TOP_LINES
 const NEAR_TOP_LINES = 20;
 const NEAR_CONTACT_LINES = 2;
+const positionPoints = (index) => (index < POSITION_POINTS.length ? POSITION_POINTS[index]
+  : index < NEAR_TOP_LINES ? LATER_LINE_POINTS : 0);
 // The winner needs at least MIN_NAME_SCORE points and a lead of MIN_LEAD over
 // the runner-up. Otherwise the name stays empty for the user to type: a wrong
 // name on job applications is worse than an empty field.
@@ -449,7 +586,7 @@ function guessName(text, contact) {
     const words = value.split(/\s+/);
     if (words.length < (labelled ? 1 : 2) || words.length > 6 || !words.every((w) => NAME_WORD.test(w))) return;
     const folded = words.map(foldName);
-    if (folded.some((w) => NON_NAME_WORDS.has(w)) || looksLikeJobTitle(folded)) return;
+    if (folded.some((w) => NON_NAME_WORDS.has(w)) || looksLikeJobTitle(folded) || looksLikePlace(folded)) return;
     const significant = folded.filter((w) => !NAME_PARTICLES.has(w)).map((w) => w.replace(/[^\p{L}]/gu, ""));
     if (!significant.length || (!labelled && significant.filter((w) => w.length > 1).length < 2)) return;
 
@@ -461,8 +598,7 @@ function guessName(text, contact) {
     if (labelled) score += NAME_EVIDENCE.labelled;
     if (matchesAlias) score += NAME_EVIDENCE.matchesHandle;
     if (capitals) score += NAME_EVIDENCE.capitalised;
-    if (index === 0) score += NAME_EVIDENCE.firstLine;
-    else if (index < NEAR_TOP_LINES) score += NAME_EVIDENCE.nearTop;
+    score += positionPoints(index);
     if (contactLines.some((i) => Math.abs(i - index) <= NEAR_CONTACT_LINES)) score += NAME_EVIDENCE.nearContact;
     if (joined) score += NAME_EVIDENCE.joinedFromTwoLines;
     const key = foldName(value);
@@ -552,14 +688,89 @@ function suggestTitles(text) {
     .map((entry) => entry.title);
 }
 
+// A phone number as CVs write it: an optional international prefix (+30,
+// 0030, (+30)) and digit groups separated by spaces, dots, dashes or brackets,
+// never across a line break. Every country groups digits differently
+// (+41 79 123 45 67, +33 6 12 34 56 78, +44 7700 900123), so the pattern
+// leaves the layout open and the digit count decides afterwards.
+const PHONE_CANDIDATE = /(?<![\p{L}\p{N}+])\(?(?:\+|00)?\d[\d \t .()-]{5,}\d/gu;
+const PHONE_DIGITS = { min: 8, max: 15 };  // 15 is the international (E.164) maximum
+const PHONE_HEADER_LINES = 15;             // where CVs put contact details
+// The words just before a number say what it is.
+const PHONE_LABEL = /(?:^|[^\p{L}])(?:tel|phone|mobile|mob|cell|τηλ|κιν|telefon|celular|movil|cellulare|handy|gsm|whatsapp|telemovel)\p{L}*\.?[^\p{L}\p{N}]{0,4}$|[📞☎✆]\s*$/u;
+const NOT_PHONE_LABEL = /(?:^|[^\p{L}])(?:vat|afm|αφμ|iban|amka|αμκα|tax|passport|postal|zip|fax|id)[^\p{L}\p{N}]{0,4}$/u;
+// Years side by side ("2019-2024", "2018 2019") and dates ("01.02.2020") have
+// phone-like digit counts.
+const DATE_LIKE = /^(?:(?:(?:19|20)\d\d[\s./-]*){2,}|\d{1,2}[.-]\d{1,2}[.-]\d{2,4})$/;
+// Points for each sign that a number is the applicant's phone. A number needs
+// at least one of them: a bare number deep in the text is more likely an ID.
+const PHONE_EVIDENCE = { labelled: 3, internationalPrefix: 2, inHeader: 1 };
+
+/** Removes a bracket left open at the start, as in "(+30 694 123 4567". */
+function balanceBrackets(value) {
+  const opened = (value.match(/\(/g) || []).length;
+  const closed = (value.match(/\)/g) || []).length;
+  return opened > closed && value.startsWith("(") ? value.slice(1).trim() : value;
+}
+
+/** The applicant's phone number as the CV writes it, or "" when there is none. */
+function findPhone(text) {
+  let best = null;
+  text.split(/\r\n?|\n/).forEach((line, lineIndex) => {
+    for (const match of line.matchAll(PHONE_CANDIDATE)) {
+      const value = match[0].trim();
+      const digits = value.replace(/\D/g, "").replace(/^00/, "");
+      if (digits.length < PHONE_DIGITS.min || digits.length > PHONE_DIGITS.max) continue;
+      if (DATE_LIKE.test(value)) continue;
+
+      const before = foldName(line.slice(Math.max(0, match.index - 25), match.index));
+      if (NOT_PHONE_LABEL.test(before)) continue;
+
+      let score = 0;
+      if (PHONE_LABEL.test(before)) score += PHONE_EVIDENCE.labelled;
+      if (/^\(?(?:\+|00)/.test(value)) score += PHONE_EVIDENCE.internationalPrefix;
+      if (lineIndex < PHONE_HEADER_LINES) score += PHONE_EVIDENCE.inHeader;
+      // Strictly greater: the first number wins a tie, and a number with no
+      // evidence at all never wins.
+      if (score > (best?.score ?? 0)) best = { score, value };
+    }
+  });
+  return best ? balanceBrackets(best.value) : "";
+}
+
+// Contact details sit in the first lines of a CV; a city further down is
+// usually where a past job was, not where the applicant lives.
+const ADDRESS_HEADER_LINES = 12;
+const ADDRESS_MAX_LENGTH = 60;
+
+/**
+ * Where the applicant lives, as the CV writes it ("Spata, Attica, Greece"),
+ * and the English name of that country ("Greece"). The country decides which
+ * remote jobs are open to the applicant.
+ */
+function findHomeLocation(text) {
+  for (const line of text.split(/\r\n?|\n/).slice(0, ADDRESS_HEADER_LINES)) {
+    for (const part of line.split(/[|·•]/)) {
+      const segment = part.trim().replace(/[,;]+$/, "");
+      // Skip e-mail addresses, links and phone numbers sharing the line.
+      if (!segment || segment.length > ADDRESS_MAX_LENGTH || /@|https?:|www\.|\d{6,}/.test(segment)) continue;
+      const [country] = placesIn(segment).countries;
+      if (country) return { location: segment, country: countryLabel(country) };
+    }
+  }
+  return { location: "", country: "" };
+}
+
 /** Guesses contact details, the applicant's name and likely job titles from the CV text. */
 export function guessFromCV(text) {
-  const out = { name: "", email: "", phone: "", linkedin: "", github: "", titles: [] };
+  const out = {
+    name: "", email: "", phone: "", location: "", country: "", linkedin: "", github: "", titles: [],
+  };
   if (!text) return out;
 
   out.email = (text.match(EMAIL_RE) || [""])[0];
-  const phone = text.match(PHONE_RE);
-  if (phone && phone[0].replace(/\D/g, "").length >= 9) out.phone = phone[0].trim();
+  out.phone = findPhone(text);
+  Object.assign(out, findHomeLocation(text));
   out.linkedin = (text.match(LINKEDIN_RE) || [""])[0];
   out.github = (text.match(GITHUB_RE) || [""])[0];
 
