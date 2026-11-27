@@ -76,6 +76,7 @@
   "settings.exclude": "Palavras que excluem uma vaga",
   "settings.salaryMin": "Salário anual mínimo",
   "settings.salaryMin.ph": "opcional",
+  "settings.salaryMin.invalid": "Introduz zero ou um número inteiro positivo, ou deixa este campo em branco.",
   "settings.salaryMin.help": "Salários noutras moedas são convertidos antes da comparação — em cada vaga vês a moeda que o empregador usou.",
   "settings.experience": "Nível de experiência",
   "settings.experience.entry": "inicial",

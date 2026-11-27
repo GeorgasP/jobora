@@ -1253,6 +1253,27 @@ header p {
   line-height: 1.5;
 }
 
+.f-row .field-error {
+  color: var(--bad);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.f-row .input-group .txt[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+#salaryMin {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+#salaryMin::-webkit-inner-spin-button,
+#salaryMin::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .grid2 {
   display: grid;
 
@@ -1401,6 +1422,70 @@ select option {
 html[data-theme="light"] select option {
   color: #151a21;
   background: #ffffff;
+}
+
+/* Browsers without customizable selects keep the standard picker. */
+@supports (appearance: base-select) {
+  select.select-menu,
+  select.select-menu::picker(select) {
+    appearance: base-select;
+  }
+
+  select.select-menu::picker-icon {
+    display: none;
+  }
+
+  select.select-menu:open {
+    border-color: var(--accent);
+  }
+
+  select.select-menu::picker(select) {
+    margin-block-start: 6px;
+    padding: 5px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r);
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow);
+    max-block-size: min(300px, 60vh);
+    overflow-y: auto;
+  }
+
+  .f-row .select-menu option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 40px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .f-row .select-menu option:hover,
+  .f-row .select-menu option:focus-visible {
+    background: var(--surface-3);
+  }
+
+  .f-row .select-menu option:checked {
+    background: var(--accent-soft);
+    color: var(--on-accent-soft);
+    font-weight: 600;
+  }
+
+  .f-row .select-menu option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .select-menu option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+    color: currentColor;
+  }
 }
 
 /* =========================================================
@@ -2491,7 +2576,7 @@ html[data-theme="light"] .cvbox:hover {
 
 /* Όσο τρέχει η αναζήτηση, το εικονίδιο γυρίζει. */
 .btn.busy svg,
-.btn[disabled] svg {
+.btn[aria-busy="true"] svg {
   animation: spin 0.9s linear infinite;
 }
 

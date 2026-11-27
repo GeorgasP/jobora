@@ -76,6 +76,7 @@
   "settings.exclude": "Λέξεις που αποκλείουν μια θέση",
   "settings.salaryMin": "Ελάχιστος ετήσιος μισθός",
   "settings.salaryMin.ph": "προαιρετικό",
+  "settings.salaryMin.invalid": "Συμπλήρωσε μηδέν ή έναν θετικό ακέραιο αριθμό, ή άφησε το πεδίο κενό.",
   "settings.salaryMin.help": "Οι μισθοί σε άλλα νομίσματα μετατρέπονται πριν τη σύγκριση — σε κάθε αγγελία βλέπεις το νόμισμα που χρησιμοποίησε ο εργοδότης.",
   "settings.experience": "Επίπεδο εμπειρίας",
   "settings.experience.entry": "αρχάριος",

@@ -61,13 +61,15 @@ export const DEFAULT_PROFILE = {
 
 const get = async (keys) => chrome.storage.local.get(keys);
 const set = async (obj) => chrome.storage.local.set(obj);
+const validSalaryMin = (value) => Number.isSafeInteger(value) && value > 0 ? value : null;
 
 export async function getProfile() {
   const { profile } = await get("profile");
-  return { ...DEFAULT_PROFILE, ...(profile || {}) };
+  return { ...DEFAULT_PROFILE, ...(profile || {}), salaryMin: validSalaryMin(profile?.salaryMin) };
 }
 export async function saveProfile(patch) {
   const profile = { ...(await getProfile()), ...patch };
+  profile.salaryMin = validSalaryMin(profile.salaryMin);
   await set({ profile });
   return profile;
 }
