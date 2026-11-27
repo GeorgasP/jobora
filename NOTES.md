@@ -12,6 +12,24 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
+### 2026-11-28 · Claude (for Panos and Apo) · Dutch sources, and the right ESCO occupations
+
+- For Apo: three Dutch sources, for users who can work in the Netherlands:
+  Werken bij de Overheid (the public sector, about 1,400 jobs), Meesterbaan
+  (teaching, about 2,300) and AcademicTransfer (universities, about 700). Each
+  scan reads their sitemaps, keeps the ads whose titles match the user's
+  occupations, and reads only those pages (40 per site at most). UWV
+  (werk.nl) has no API; its jobs come through EURES.
+- Fixed in `esco.js`: "Software Engineer" was looked up as satellite, quality
+  and mechatronics engineers, and "software developer" was dropped. ESCO
+  says which of an occupation's names matched (`searchHit`); that now counts.
+  This changes EURES searches too: developers get developer jobs.
+- Ads in Dutch, Swedish and Norwegian are matched on ESCO's names with their
+  alternatives, by stem, compound head, or the role a Dutch title starts with
+  ("Docent wiskunde"), but never by a generic role ("Teamleider", "Medewerker").
+- Live, a software engineer in the Netherlands: 6 public-sector jobs (MIVD,
+  Koninklijke Bibliotheek) and 9 at universities (AMOLF, TU Delft).
+
 ### 2026-11-27 (late night) · Claude (for Panos and Apo) · National employment services
 
 - New `SOURCES.md`: every source by country, what each other country would

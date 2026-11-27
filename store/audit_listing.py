@@ -69,6 +69,8 @@ NAMES = {
     "devitjobs": "DevITjobs", "adzuna": "Adzuna", "eures": "EURES", "psf": "psf.org.gr",
     "skywalker": "skywalker.gr", "jobfind": "jobfind.gr", "xe": "xe.gr", "ordino": "ordino.gr",
     "jobtech": "jobsearch.api.jobtechdev.se", "nav": "pam-stilling-feed.nav.no",
+    "overheid": "werkenbijdeoverheid.nl", "meesterbaan": "meesterbaan.nl",
+    "academictransfer": "academictransfer.com",
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
     "workable": "Workable", "smartrecruiters": "SmartRecruiters",
     "recruitee": "Recruitee", "workday": "Workday", "teamtailor": "Teamtailor",

@@ -98,8 +98,10 @@ const hits = (hostname) => requests.filter((r) => r.url.hostname === hostname);
 
 test("an older profile gets the sources added since, once", async () => {
   await send({ type: "refreshBadge" });   // waits for the migration like every handler
-  for (const board of ["eures", "jobfind", "xe", "jobtech", "nav"]) assert.ok(storage.profile.boards.includes(board), board);
-  assert.equal(storage.state.schemaVersion, 9);
+  for (const board of ["eures", "jobfind", "xe", "jobtech", "nav", "overheid", "meesterbaan", "academictransfer"]) {
+    assert.ok(storage.profile.boards.includes(board), board);
+  }
+  assert.equal(storage.state.schemaVersion, 10);
 });
 
 test("without the portals' permission, a scan leaves them and ESCO out", async () => {
@@ -145,7 +147,7 @@ test("a user in Sweden gets Platsbanken's jobs, searched in Swedish through ESCO
     assert.equal(result.ok, true);
     const [search] = hits("jobsearch.api.jobtechdev.se");
     assert.equal(search.url.searchParams.get("q"), "sjuksköterska");
-    assert.equal(storage.profile.occupationNames[NURSE].sv, "sjuksköterska", "the names are kept for the next scan");
+    assert.deepEqual(storage.profile.occupationNames[NURSE].sv, ["sjuksköterska"], "the names are kept for the next scan");
     const { matches } = await send({ type: "matches" });
     assert.ok(matches.some((m) => m.title === "Sjuksköterska" && m.location === "Mölndal, Sweden"),
       JSON.stringify(matches.map((m) => `${m.title} | ${m.location}`)));

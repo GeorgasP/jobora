@@ -252,16 +252,62 @@ function euresJob(vacancy) {
 
 /* ── National employment services ────────────────────────── */
 
-// An ad is for the user's occupation when its title names it. Swedish and
-// Norwegian compounds put the head word last: an "intensivsykepleier" is a
-// sykepleier, and an ad for a plain "sjåfør" may be the "lastebilsjåfør" the
-// user wants. Shorter words are too common to judge by their ending.
-const MIN_HEAD_WORD = 5;
-export function namesOccupation(text, name) {
-  const head = fold(name).split(/\s+/).at(-1) || "";
-  if (head.length < MIN_HEAD_WORD) return fold(text).includes(fold(name));
-  return fold(text).split(/[^\p{L}]+/u)
-    .some((word) => word.length >= MIN_HEAD_WORD && (word.endsWith(head) || head.endsWith(word)));
+/*
+ * An ad is for the user's occupation when its title names it, in any of the
+ * occupation's names (ESCO's, in the ad's language and in English). Titles
+ * and names are compared word by word, on stems, so that singular and
+ * plural, or Dutch "verpleegkundige" and "verpleegkundig", are the same word.
+ */
+const MIN_HEAD_WORD = 5;                            // shorter words are too common to judge by a part
+const MIN_STEM = 4;
+// Plural and adjective endings only: Dutch -en, -e, -s, Swedish -or, -a. An
+// agent's -er stays, or "programmer" would be the stem of Dutch "programma".
+const INFLECTION = /(en|or|e|a|s)$/u;
+const stemOf = (word) => {
+  const stem = word.replace(INFLECTION, "");
+  return stem.length >= MIN_STEM ? stem : word;
+};
+const wordsIn = (text) => fold(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+// Dutch, German and Scandinavian job titles name the role first ("leraar
+// secundair onderwijs", "lærer i videregående skole"), so a first word that
+// ends like a role names the job on its own ("Docent wiskunde" is a teacher)…
+const ROLE_ENDING = /(er|aar|eur|ent|ist|ige|kracht|or|ar|ör|man)$/u;
+// …unless it is a role found in every field, which only the rest of the name
+// pins down: "medewerker klantenservice" is customer service, not every
+// "medewerker", and a nurse manager is not every "teamleider".
+const GENERIC_ROLES = new Set([
+  "medewerker", "teamleider", "leidinggevende", "leider", "manager", "assistent", "adviseur", "coordinator",
+  "specialist", "consultant", "beheerder", "directeur", "hoofd",                                   // Dutch, English
+  "mitarbeiter", "leiter", "berater", "sachbearbeiter", "spezialist",                              // German
+  "medarbetare", "handlaggare", "samordnare", "chef",                                              // Swedish
+  "medarbeider", "leder", "radgiver", "konsulent", "medarbejder",                                  // Norwegian, Danish
+]);
+
+function namesOne(titleWords, name) {
+  const nameWords = wordsIn(name);
+  if (!nameWords.length) return false;
+  const titleStems = titleWords.map(stemOf);
+  // The title has the word itself, or a compound ending in it (compounds put
+  // the head last: an "intensivsykepleier" is a sykepleier); never the word
+  // somewhere inside a longer one.
+  const has = (word) => {
+    const stem = stemOf(word);
+    return titleStems.some((title) => title === stem || (stem.length >= MIN_HEAD_WORD && title.endsWith(stem)));
+  };
+  if (nameWords.length === 1) {
+    // And an ad for a plain "sjåfør" may be the "lastebilsjåfør" wanted.
+    const stem = stemOf(nameWords[0]);
+    return has(nameWords[0]) || titleStems.some((title) => title.length >= MIN_HEAD_WORD && stem.endsWith(title));
+  }
+  if (nameWords.every(has)) return true;
+  const [first] = nameWords;
+  return first.length >= MIN_HEAD_WORD && ROLE_ENDING.test(first) && !GENERIC_ROLES.has(first) && has(first);
+}
+
+/** Whether an ad's title names the occupation, in one of its `names`. */
+export function namesOccupation(text, names) {
+  const titleWords = wordsIn(text);
+  return [].concat(names).some((name) => namesOne(titleWords, name));
 }
 
 const titleCase = (text) => (text || "").toLowerCase().replace(/(^|[\s-])\p{L}/gu, (start) => start.toUpperCase());
@@ -325,6 +371,135 @@ async function navChangesSince(token, since) {
     url = new URL(feed.next_url, NAV_FEED).href;
   }
   return latest;
+}
+
+/*
+ * The Netherlands: job sites whose robots.txt lets anyone read their vacancy
+ * sitemaps and ads. A scan reads the sitemap, keeps the ads whose titles name
+ * the user's occupations, and reads only those ads' pages, for the employer
+ * and the place.
+ */
+const AD_PAGES_PER_SCAN = 40;                       // per site; the newest matching ads first
+
+/** The `content` of a <meta property|name="…"> tag. */
+function metaContent(html, name) {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
+    if (new RegExp(`(?:property|name)=["']${name}["']`, "i").test(tag)) {
+      return decodeEntities(/content=["']([^"']*)["']/i.exec(tag)?.[1] || "");
+    }
+  }
+  return "";
+}
+
+/** The schema.org JobPosting a page describes itself with, wherever it sits in its JSON-LD. */
+function jobPostingIn(html) {
+  const find = (node) => {
+    if (!node || typeof node !== "object") return null;
+    if (node["@type"] === "JobPosting") return node;
+    for (const value of Object.values(node)) {
+      const found = find(value);
+      if (found) return found;
+    }
+    return null;
+  };
+  for (const block of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const found = find(JSON.parse(block[1]));
+      if (found) return found;
+    } catch { /* a broken block is skipped */ }
+  }
+  return null;
+}
+
+const DUTCH_SITES = {
+  // Werken bij de Overheid: the public sector's vacancies, the central
+  // government's (Werken voor Nederland) included. /vacatures/{title}-{ORG}-{year}-{number}
+  overheid: {
+    sitemap: "https://www.werkenbijdeoverheid.nl/sitemap-vacatures.xml",
+    ad(url) {
+      const found = /\/vacatures\/(.+)-([A-Za-z]+-\d{4}-\d+)$/.exec(url);
+      return found && { id: found[2], title: unslug(found[1]) };
+    },
+    // og:title is "{title} • {organisation} | Werken bij de Overheid".
+    details(html) {
+      const [title, company] = metaContent(html, "og:title").split(" | ")[0].split(" • ");
+      return { title, company };
+    },
+  },
+  // Meesterbaan: teaching jobs at every level. /vacature/{id}/{title}
+  meesterbaan: {
+    sitemap: "https://www.meesterbaan.nl/SitemapVacatures.xml",
+    ad(url) {
+      const found = /\/vacature\/(\d+)\/([^/?#]+)/.exec(url);
+      return found && { id: found[1], title: unslug(found[2].replace(/^vacature-/, "").replace(/-\d+-fte$/, "")) };
+    },
+    // og:title is "Vacature {title} - {school} - {town}".
+    details(html) {
+      const parts = metaContent(html, "og:title").replace(/^Vacature\s+/i, "").split(" - ");
+      return parts.length >= 3 ? { title: parts.slice(0, -2).join(" - "), company: parts.at(-2), town: parts.at(-1) } : {};
+    },
+  },
+  // AcademicTransfer: universities and research institutes. /{en|nl}/jobs/{id}/{title}/
+  academictransfer: {
+    sitemap: "https://www.academictransfer.com/sitemap-vacancies.xml",
+    ad(url) {
+      const found = /\/(en|nl)\/jobs\/(\d+)\/([^/]+)\/?$/.exec(url);
+      return found && { id: found[2], title: unslug(found[3]), preferred: found[1] === "en" };
+    },
+    details(html) {
+      const posting = jobPostingIn(html);
+      if (!posting) return {};
+      const place = [].concat(posting.jobLocation || [])[0]?.address || {};
+      const pay = posting.baseSalary?.value || {};
+      const period = String(pay.unitText || "").toLowerCase();
+      // Research institutes abroad advertise here too: Halle is in Germany.
+      const code = typeof place.addressCountry === "object" ? place.addressCountry?.name : place.addressCountry;
+      return {
+        title: posting.title, company: posting.hiringOrganization?.name, town: place.addressLocality,
+        country: countryFromCode(code) || undefined,
+        postedAt: iso(posting.datePosted), description: stripHtml(posting.description),
+        salary: pay.minValue || pay.maxValue
+          ? [pay.minValue || null, pay.maxValue || null, posting.baseSalary.currency || "EUR", period === "month" ? "month" : "year"]
+          : null,
+      };
+    },
+  },
+};
+
+async function dutchSite(board, opts) {
+  const site = DUTCH_SITES[board];
+  const terms = opts.national?.netherlands || [];
+  if (!terms.length) return [];
+  const xml = await getText(site.sitemap);
+  const cutoff = Date.now() - (opts.maxAgeDays || 60) * DAY_MS;
+  const ads = new Map();
+  for (const entry of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+    const url = decodeEntities(/<loc>\s*([^<]+?)\s*<\/loc>/.exec(entry[1])?.[1] || "");
+    const modified = Date.parse(/<lastmod>([^<]+)<\/lastmod>/.exec(entry[1])?.[1] || "") || null;
+    const ad = url && site.ad(url);
+    if (!ad || (modified && modified < cutoff)) continue;
+    if (ads.has(ad.id) && !ad.preferred) continue;          // the English page of an ad in two languages
+    const term = terms.find(({ names }) => namesOccupation(ad.title, names));
+    if (term) ads.set(ad.id, { ...ad, url, modified, occupation: term.occupation });
+  }
+  const newest = [...ads.values()].sort((a, b) => (b.modified || 0) - (a.modified || 0)).slice(0, AD_PAGES_PER_SCAN);
+  const out = [];
+  for (const ad of newest) {
+    let details = {};
+    try {
+      details = site.details(await getText(ad.url));
+    } catch { /* the sitemap's title will do */ }
+    const country = details.country || "netherlands";
+    out.push(job(board, ad.id, details.company, details.title || ad.title, ad.url, {
+      location: [details.town, countryLabel(country)].filter(Boolean).join(", "),
+      country,
+      description: details.description || "",
+      postedAt: details.postedAt || (ad.modified ? new Date(ad.modified).toISOString() : null),
+      salary: details.salary || undefined,
+      occupations: [ad.occupation],
+    }));
+  }
+  return out;
 }
 
 /* ── ATS providers: στοχευμένες εταιρείες ─────────────────── */
@@ -621,11 +796,12 @@ export const BOARDS = {
    */
   async jobtech(query, opts = {}) {
     const out = [];
-    for (const { occupation, name } of opts.national?.sweden || []) {
-      const params = new URLSearchParams({ q: name, limit: String(JOBTECH_RESULTS), sort: "pubdate-desc" });
+    for (const { occupation, names } of opts.national?.sweden || []) {
+      // Searched by the first name, Swedish when ESCO has one; kept by any.
+      const params = new URLSearchParams({ q: names[0], limit: String(JOBTECH_RESULTS), sort: "pubdate-desc" });
       const found = await getJSON(`${JOBTECH_SEARCH}?${params}`);
       for (const ad of found.hits || []) {
-        if (namesOccupation(`${ad.headline} ${ad.occupation?.label || ""}`, name)) out.push(jobtechJob(ad, occupation));
+        if (namesOccupation(`${ad.headline} ${ad.occupation?.label || ""}`, names)) out.push(jobtechJob(ad, occupation));
       }
     }
     return out;
@@ -649,11 +825,16 @@ export const BOARDS = {
     const out = [];
     for (const entry of ads.values()) {
       if (entry.status !== "ACTIVE") continue;
-      const term = terms.find(({ name }) => namesOccupation(entry.title || "", name));
+      const term = terms.find(({ names }) => namesOccupation(entry.title || "", names));
       if (term) out.push(navJob(entry, term.occupation));
     }
     return out;
   },
+
+  // The Netherlands (see DUTCH_SITES): the public sector, teaching, and universities.
+  overheid: (query, opts = {}) => dutchSite("overheid", opts),
+  meesterbaan: (query, opts = {}) => dutchSite("meesterbaan", opts),
+  academictransfer: (query, opts = {}) => dutchSite("academictransfer", opts),
 
   /* Βρετανική αγορά με μισθό και επίπεδο εμπειρίας δηλωμένα σε κάθε αγγελία —
      δύο πεδία που οι περισσότερες πηγές τα αφήνουν κενά. */

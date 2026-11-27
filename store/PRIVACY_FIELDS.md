@@ -48,19 +48,19 @@ Injects the form-filling script into a job application page when the user clicks
 When the user clicks "Fill the current page" in the extension's popup, the form filler needs access to the tab the user is looking at, at that moment, on that click. activeTab grants exactly that and nothing wider: no access to other tabs, no access before the click, and no access after the tab is closed.
 ```
 
-## Host permission justification  (962/1000)
+## Host permission justification  (991/1000)
 
 ```
 Jobora fetches public job listings from the sites that publish them.
 
 Job boards and applicant tracking systems (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Workday, Teamtailor, Breezy, Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, WorkingNomads, We Work Remotely, Cryptocurrency Jobs, Landing.jobs, DevITjobs, psf.org.gr, skywalker.gr, ordino.gr): read-only requests for public postings. No user data is sent.
 
-Optional, asked only when the user turns them on: EURES (europa.eu, ec.europa.eu), searched by occupation and country; the employment services of the user's countries (jobsearch.api.jobtechdev.se, pam-stilling-feed.nav.no); the Greek boards jobfind.gr and xe.gr.
+Optional, asked only when the user turns them on: EURES (europa.eu, ec.europa.eu), searched by occupation and country; job sites of the user's countries (jobsearch.api.jobtechdev.se, pam-stilling-feed.nav.no, werkenbijdeoverheid.nl, meesterbaan.nl, academictransfer.com); the Greek boards jobfind.gr and xe.gr.
 
 api.adzuna.com, api.anthropic.com: optional, only with the user's own key.
 
 open.er-api.com: daily exchange rates, no parameters.
 
-Content scripts run on job application pages only, to show the "Fill with Jobora" button and fill the form when the user clicks it.
+Content scripts run on job application pages only, and fill a form only when the user clicks "Fill with Jobora".
 ```
 

@@ -12,7 +12,10 @@ Where Jobora finds jobs, and what every other country would need. Checked on
   they are out.
 - A country's own sources run only for users who can work in that country,
   and are asked in the country's language: ESCO names each occupation in 28
-  languages (`occupationNames` in `extension/lib/esco.js`).
+  languages, with alternative names (`occupationNames` in
+  `extension/lib/esco.js`). An ad counts when its title names one of them
+  (`namesOccupation` in `extension/lib/sources.js`, with the rules and their
+  tests in `tests/national.test.mjs`).
 - Sites added after the first store release are optional permissions, asked
   inside the app (`extension/lib/portals.js`), and only for the user's
   countries.
@@ -26,6 +29,9 @@ Where Jobora finds jobs, and what every other country would need. Checked on
 | EU, EEA, Switzerland (31 countries) | EURES | Every industry, from the national employment services, by ESCO occupation | Public search, optional permission. Down on 2026-11-27 (the Commission's "service unavailable" page); scans go on without it |
 | Sweden | Arbetsförmedlingen, Platsbanken | Every job advertised in Sweden | JobTech JobSearch API: open, CC0, no key |
 | Norway | NAV, arbeidsplassen.no | Most jobs advertised in Norway | Job vacancy feed, with the public token NAV publishes |
+| Netherlands | Werken bij de Overheid (Werken voor Nederland included) | The public sector: about 1,400 jobs, from lawyers and nurses to IT and warehouse staff | Vacancy sitemap and ad pages, allowed by robots.txt |
+| Netherlands | Meesterbaan | Teaching jobs at every level: about 2,300 | Vacancy sitemap and ad pages, allowed by robots.txt |
+| Netherlands | AcademicTransfer | Universities and research institutes: about 700 | Vacancy sitemap and ad pages (schema.org JobPosting), allowed by robots.txt |
 | Greece | jobfind.gr, xe.gr, skywalker.gr, ordino.gr, psf.org.gr | Every industry | RSS, sitemaps, pages allowed by robots.txt |
 | 19 countries | Adzuna | Every industry | The user's own free key, in Settings |
 
@@ -39,6 +45,8 @@ Where Jobora finds jobs, and what every other country would need. Checked on
 | Canada | Job Bank | Open data, but monthly files only: not fresh enough |
 | Finland | Työmarkkinatori | Only the site's own search endpoint; not an official API, so not used |
 | Germany | Bundesagentur für Arbeit | No official API, and its site endpoint refuses scripts (HTTP 403). Covered through EURES |
+| Netherlands | UWV, werk.nl | No API ("Werk.nl beschikt helaas niet over een API van alle vacatures", data.overheid.nl), and its sitemap lists no ads. Covered through EURES |
+| Netherlands | Werken voor Nederland's CSO Vacature-API | Listed in the government's API register; its server answered 503 on 2026-11-27. The sitemap source above covers the same ads |
 | Singapore | MyCareersFuture; Careers@Gov | MyCareersFuture's API is the site's own, not documented for reuse; Careers@Gov publishes government jobs |
 
 ## Needs a Jobora server
