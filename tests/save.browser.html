@@ -1,0 +1,79 @@
+<!doctype html><meta charset="utf-8"><title>Save button check</title>
+<pre id="result">RUNNING</pre><div id="frames"></div>
+<script type="module">
+// Loads the real content/save.js into a page holding a job post, as on a
+// social site, and checks the "Save to Jobora" button: that it finds posts in
+// other languages than English and Greek, speaks the user's language, and
+// saves what the user confirms. Serve the repository root and open this file
+// (see extension/README.md).
+const result = document.querySelector("#result");
+const base = new URL("../extension/", location.href).href;
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// What the service worker answers to {type: "saveTexts"} for a German user.
+window.GERMAN_TEXTS = {
+  button: "🎯 In Jobora speichern", heading: "Stellenanzeige speichern", title: "Titel",
+  company: "Unternehmen oder Seite", location: "Ort", text: "Text", cancel: "Abbrechen", save: "Speichern",
+  contact: "Kontakt: {email}", saved: "Gespeichert. Du findest sie unter „Treffer“.",
+  notSaved: "Nicht gespeichert: {error}", unknownError: "unbekannter Fehler",
+};
+const POST = "Vacature: kok in Rotterdam. Wij zoeken een ervaren kok voor ons restaurant aan de Maas, "
+  + "vijf avonden per week. Solliciteer met je cv via werk@restaurant.example.";
+
+async function postPage(body) {
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "width:900px;height:500px;display:block";
+  document.querySelector("#frames").append(frame);
+  const loaded = new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>Restaurant aan de Maas | Facebook</title><script>
+    window.sent = [];
+    window.chrome = { runtime: { sendMessage(message, reply) {
+      sent.push(message);
+      const answer = message.type === "saveTexts" ? { ok: true, texts: parent.GERMAN_TEXTS } : { ok: true, added: 1 };
+      setTimeout(() => reply && reply(answer), 0);
+    } } };
+  <\/script></head><body>${body}<script src="${base}content/save.js"><\/script></body></html>`;
+  await loaded;
+  return frame.contentWindow;
+}
+
+try {
+  const page = await postPage(`<article><p>${POST}</p></article>`);
+  let button;
+  for (let n = 0; n < 60 && !(button = page.document.getElementById("__jobora_save_btn")); n++) await wait(50);
+  assert(button, "no Save button on a Dutch job post");
+  assert(button.textContent === GERMAN_TEXTS.button, `the button ignores the user's language: ${button.textContent}`);
+
+  button.click();
+  const panel = page.document.getElementById("__jobora_save_panel")?.shadowRoot;
+  assert(panel, "the button opened no form");
+  const labels = [...panel.querySelectorAll("label")].map((label) => label.textContent);
+  assert(labels.join("|") === "Titel|Unternehmen oder Seite|Ort|Text", `form labels: ${labels.join("|")}`);
+  assert(panel.querySelector("b").textContent === GERMAN_TEXTS.heading, "form heading");
+  assert(panel.querySelector("#t").value === "Vacature: kok in Rotterdam", `title guess: ${panel.querySelector("#t").value}`);
+  assert(panel.querySelector("#c").value === "Restaurant aan de Maas", `company guess: ${panel.querySelector("#c").value}`);
+  assert(panel.querySelector("#hint").textContent === "Kontakt: werk@restaurant.example",
+    `contact: ${panel.querySelector("#hint").textContent}`);
+
+  panel.querySelector("#save").click();
+  await wait(50);
+  const saved = page.sent.find((message) => message.type === "saveJob");
+  assert(saved, "nothing was saved");
+  assert(saved.job.title === "Vacature: kok in Rotterdam" && saved.job.contactEmail === "werk@restaurant.example",
+    JSON.stringify(saved.job));
+  assert(panel.querySelector("#hint").textContent === GERMAN_TEXTS.saved, `after saving: ${panel.querySelector("#hint").textContent}`);
+
+  // A post about something else gets no button, in any language.
+  const other = await postPage(`<article><p>${"Wie heeft er een goed recept voor appeltaart met kaneel en rozijnen? ".repeat(3)}`
+    + "Het hoeft niet ingewikkeld te zijn, als het maar lekker is.</p></article>");
+  await wait(1500);
+  assert(!other.document.getElementById("__jobora_save_btn"), "a recipe question got a Save button");
+
+  result.textContent = "PASS: a Dutch job post gets the Save button, in the user's language; the form guesses the "
+    + "title, company and contact without a trailing full stop, and saves what the user confirms; a post that "
+    + "offers no job gets no button.";
+} catch (error) {
+  result.textContent = "FAIL: " + error.message + "\n" + error.stack;
+}
+</script>

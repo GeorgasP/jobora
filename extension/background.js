@@ -237,12 +237,16 @@ async function applyToJob(jobId, method = "assisted") {
 
 /* ── What the application page gets ───────────────────────── */
 
-// The texts the content scripts show on the application page. They run on
-// the employer's site, where the extension's translations cannot be loaded,
-// so the worker sends them along in the user's language.
-const FILL_TEXT_KEYS = ["button", "filling", "noFields", "noResponse", "filled", "cvAttached",
-  "required", "check", "leftForYou", "cvUpload", "noMatch"];
-const fillTexts = () => Object.fromEntries(FILL_TEXT_KEYS.map((key) => [key, t(`fill.${key}`)]));
+// The texts the content scripts show: "fill" on application pages, "save"
+// on social sites. They run on other people's sites, where the extension's
+// translations cannot be loaded, so the worker sends them in the user's language.
+const PAGE_TEXT_KEYS = {
+  fill: ["button", "filling", "noFields", "noResponse", "filled", "cvAttached",
+    "required", "check", "leftForYou", "cvUpload", "noMatch"],
+  save: ["button", "heading", "title", "company", "location", "text", "cancel", "save",
+    "contact", "saved", "notSaved", "unknownError"],
+};
+const pageTexts = (group) => Object.fromEntries(PAGE_TEXT_KEYS[group].map((key) => [key, t(`${group}.${key}`)]));
 
 /**
  * The answers for the form at `page` ({url, title}), and the application it
@@ -284,7 +288,7 @@ async function prefillFor(page) {
     cover_letter: app ? app.coverLetter || "" : "",
     notice: app ? "" : t("fill.noMatch"),
     cv: cv ? { filename: cv.filename, mime: cv.mime, base64: cv.base64 } : null,
-    texts: fillTexts(),
+    texts: pageTexts("fill"),
   };
 }
 
@@ -294,7 +298,8 @@ const HANDLERS = {
   matches: async () => ({ ok: true, matches: (await currentMatches()).slice(0, 200) }),
   apply: (msg) => applyToJob(msg.jobId, msg.method),
   prefill: (msg) => prefillFor({ url: msg.url, title: msg.title }),
-  fillTexts: async () => ({ ok: true, texts: fillTexts() }),
+  fillTexts: async () => ({ ok: true, texts: pageTexts("fill") }),
+  saveTexts: async () => ({ ok: true, texts: pageTexts("save") }),
   dismiss: async (msg) => { await store.dismissJob(msg.jobId); await refreshBadge(); return { ok: true }; },
   refreshBadge: async () => ({ ok: true, count: await refreshBadge() }),
   /* Αγγελία που είδε ο χρήστης κάπου χωρίς API και θέλησε να κρατήσει.

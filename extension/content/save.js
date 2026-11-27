@@ -1,66 +1,110 @@
 /*
- * «Αποθήκευση στο Jobora» — για αγγελίες που δεν έχουν API.
+ * "Save to Jobora": for job ads that no API offers.
  *
- * Πολλές θέσεις ανεβαίνουν μόνο σε ανάρτηση: ομάδα στο Facebook, νήμα στο
- * Reddit, δημοσίευση σε σελίδα. Καμία σάρωση δεν τις φτάνει, και κανένα
- * API δεν τις δίνει.
+ * Many jobs are only ever posted: in a Facebook group, a Reddit thread, a
+ * page's post. No scan reaches them and no API returns them.
  *
- * Το script ΔΕΝ ψάχνει και ΔΕΝ στέλνει τίποτα από μόνο του. Εμφανίζει ένα
- * κουμπί όταν η σελίδα που κοιτάς μοιάζει με αγγελία, και μόνο αν το πατήσεις
- * διαβάζει το κείμενο και το στέλνει στο extension. Είναι η διαφορά ανάμεσα
- * στο να κρατάς σημείωση για κάτι που βλέπεις και στο να σαρώνεις έναν ιστότοπο.
+ * This script neither searches nor sends anything by itself. It shows a
+ * button when the page you are reading looks like a job ad, and only when
+ * you press it does it read the text and pass it to the extension: the
+ * difference between taking a note of something you see and crawling a site.
  */
 (function () {
   "use strict";
   if (window.__joboraSave) return;
   window.__joboraSave = true;
 
-  const HIRING = [
-    // αγγλικά
-    "hiring", "we are looking for", "we're looking for", "job opening", "vacancy",
+  // Shown until the service worker answers with the user's language.
+  const DEFAULT_TEXTS = {
+    button: "🎯 Save to Jobora", heading: "Save this job ad", title: "Title", company: "Company or page",
+    location: "Location", text: "Text", cancel: "Cancel", save: "Save", contact: "Contact: {email}",
+    saved: "Saved. You'll find it in Matches.", notSaved: "Not saved: {error}", unknownError: "unknown error",
+  };
+  const BUTTON_ID = "__jobora_save_btn";
+  const PANEL_ID = "__jobora_save_panel";
+  const POST_MIN_LENGTH = 120;      // shorter blocks are comments or captions
+  const POST_MAX_LENGTH = 6000;     // longer ones are a whole feed
+  const SELECTION_MIN_LENGTH = 80;  // a selection this long is the post the user means
+  const RECHECK_MS = 900;           // social feeds change constantly; look again after a pause
+  const SAVED_CLOSE_MS = 1400;
+
+  // What a post says when it offers a job, in Jobora's languages and Dutch.
+  // Whole words and phrases, so "vacature" is not found inside other words.
+  const HIRING_WORDS = [
+    // English
+    "hiring", "we are looking for", "we're looking for", "job opening", "vacancy", "vacancies",
     "apply now", "job offer", "now hiring", "join our team", "position available",
     "send your cv", "send cv", "recruiting",
-    // ελληνικά
+    // Greek
     "ζητείται", "ζητούνται", "αναζητούμε", "αναζητείται", "θέση εργασίας",
     "θέσεις εργασίας", "προσλαμβάνουμε", "αποστολή βιογραφικών", "βιογραφικό",
     "ζητάμε", "προσφέρεται εργασία",
+    // German
+    "wir suchen", "stellenangebot", "stellenanzeige", "jetzt bewerben", "wir stellen ein", "gesucht",
+    // Spanish
+    "se busca", "buscamos", "oferta de empleo", "oferta de trabajo", "vacante", "estamos contratando", "envía tu cv",
+    // French
+    "nous recrutons", "on recrute", "offre d'emploi", "poste à pourvoir", "nous recherchons", "envoyez votre cv",
+    // Italian
+    "cerchiamo", "cercasi", "offerta di lavoro", "stiamo assumendo", "posizione aperta", "invia il tuo cv",
+    // Portuguese
+    "estamos a contratar", "estamos contratando", "procuramos", "oferta de emprego", "envia o teu cv", "envie o seu cv",
+    // Dutch
+    "vacature", "wij zoeken", "we zoeken", "solliciteer", "kom ons team versterken",
+    // Polish
+    "zatrudnimy", "szukamy", "oferta pracy", "praca od zaraz", "dołącz do naszego zespołu", "wyślij cv",
   ];
+  const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const HIRING = new RegExp(`(?<![\\p{L}\\p{N}])(?:${HIRING_WORDS.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}])`, "u");
+  const offersAJob = (text) => HIRING.test(text.toLowerCase());
 
-  const textOf = (el) => (el?.innerText || "").replace(/\s+/g, " ").trim();
+  let texts = DEFAULT_TEXTS;
+  const fillIn = (template, values) =>
+    Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), template);
 
-  /** Το πιο πιθανό μπλοκ αγγελίας: το μικρότερο που περιέχει ένδειξη πρόσληψης. */
+  function ask(message) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage(message, (reply) => {
+        void chrome.runtime.lastError;      // a worker being updated answers nothing
+        resolve(reply);
+      });
+    });
+  }
+
+  // Typographic apostrophes ("we’re") read as plain ones, as the word list has them.
+  const textOf = (el) => (el?.innerText || "").replace(/[’‘]/g, "'").replace(/\s+/g, " ").trim();
+
+  /** The likeliest job ad on the page: the smallest block that offers a job. */
   function findPosting() {
-    const sel = String(window.getSelection() || "").trim();
-    if (sel.length > 80) return { text: sel, node: null };
+    const selection = String(window.getSelection() || "").trim();
+    if (selection.length > SELECTION_MIN_LENGTH) return { text: selection, node: null };
 
     const candidates = [...document.querySelectorAll(
       "article, [role=article], [data-testid=post_message], .userContent, " +
       ".feed-shared-update-v2, .Post, .usertext-body, main, section")];
     let best = null;
     for (const el of candidates) {
-      const t = textOf(el);
-      if (t.length < 120 || t.length > 6000) continue;
-      const low = t.toLowerCase();
-      if (!HIRING.some((k) => low.includes(k))) continue;
-      if (!best || t.length < best.text.length) best = { text: t, node: el };
+      const text = textOf(el);
+      if (text.length < POST_MIN_LENGTH || text.length > POST_MAX_LENGTH || !offersAJob(text)) continue;
+      if (!best || text.length < best.text.length) best = { text, node: el };
     }
     return best;
   }
 
   function guess(text) {
     const lines = text.split(/[\n·|]|(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-    const fits = (l) => l.length >= 8 && l.length <= 110;
-    // Ο ρόλος είναι στη γραμμή που λέει ότι ψάχνουν κάποιον — όχι στην πρώτη,
-    // που συνήθως είναι το όνομα της σελίδας που δημοσίευσε.
-    const hiring = lines.find((l) => fits(l) && HIRING.some((k) => l.toLowerCase().includes(k)));
-    const title = hiring || lines.find(fits) || lines[0] || "";
-    const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/) || [])[0] || "";
-    // Οι αναρτήσεις ξεκινούν με χρονόσημο («3 ώρες», «2h», «πριν 5 λεπτά»),
-    // που δεν είναι μέρος του τίτλου.
+    const fits = (line) => line.length >= 8 && line.length <= 110;
+    // The role is in the line that says they are looking for someone, not in
+    // the first one, which is usually the name of the page that posted it.
+    const title = lines.find((line) => fits(line) && offersAJob(line)) || lines.find(fits) || lines[0] || "";
+    // An address that ends a sentence must not keep the sentence's full stop.
+    const email = ((text.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/) || [])[0] || "").replace(/\.+$/, "");
     const clean = title
-      // \w δεν πιάνει ελληνικά· χρειάζεται \p{L} με τη σημαία u.
+      // Posts start with a timestamp ("3 hours", "2h", "πριν 5 λεπτά") that is
+      // no part of the title. \w misses Greek; \p{L} with the u flag does not.
       .replace(/^(πριν\s+)?\d+\s*(ώρ\p{L}*|λεπτ\p{L}*|ημέρ\p{L}*|h|hr|hrs|min|days?)\s*/iu, "")
       .replace(/^[-–—:·,\s]+/, "")
+      .replace(/[.,;:!]+$/, "")
       .trim();
     return { title: clean.slice(0, 120), email };
   }
@@ -76,7 +120,7 @@
     close();
     const g = guess(found.text);
     panel = document.createElement("div");
-    panel.id = "__jobora_save_panel";
+    panel.id = PANEL_ID;
     panel.attachShadow({ mode: "open" }).innerHTML = `
       <style>
         :host { all: initial; }
@@ -107,29 +151,31 @@
         .hint { margin-top: 9px; font-size: 11.5px; color: #899bb2; }
       </style>
       <div class="box">
-        <b>Αποθήκευση αγγελίας</b>
-        <label>Τίτλος</label><input id="t" value="">
-        <label>Εταιρεία / σελίδα</label><input id="c" value="">
-        <label>Περιοχή</label><input id="l" value="">
-        <label>Κείμενο</label><textarea id="d"></textarea>
+        <b></b>
+        <label for="t" data-text="title"></label><input id="t">
+        <label for="c" data-text="company"></label><input id="c">
+        <label for="l" data-text="location"></label><input id="l">
+        <label for="d" data-text="text"></label><textarea id="d"></textarea>
         <div class="row">
-          <button id="cancel">Άκυρο</button>
-          <button id="save" class="primary">Αποθήκευση</button>
+          <button id="cancel" data-text="cancel"></button>
+          <button id="save" class="primary" data-text="save"></button>
         </div>
         <div class="hint" id="hint"></div>
       </div>`;
     document.documentElement.appendChild(panel);
 
-    const $ = (s) => panel.shadowRoot.querySelector(s);
+    const $ = (selector) => panel.shadowRoot.querySelector(selector);
+    $("b").textContent = texts.heading;
+    panel.shadowRoot.querySelectorAll("[data-text]").forEach((el) => { el.textContent = texts[el.dataset.text]; });
     $("#t").value = g.title;
     $("#c").value = document.title.split(/[|\-–]/)[0].trim().slice(0, 60);
     $("#d").value = found.text.slice(0, 1500);
-    $("#hint").textContent = g.email ? `Επικοινωνία: ${g.email}` : "";
+    $("#hint").textContent = g.email ? fillIn(texts.contact, { email: g.email }) : "";
 
     $("#cancel").onclick = close;
-    $("#save").onclick = () => {
+    $("#save").onclick = async () => {
       $("#save").disabled = true;
-      chrome.runtime.sendMessage({
+      const reply = await ask({
         type: "saveJob",
         job: {
           title: $("#t").value.trim(),
@@ -139,43 +185,47 @@
           url: location.href,
           contactEmail: g.email,
         },
-      }, (res) => {
-        $("#hint").textContent = res?.ok
-          ? "Αποθηκεύτηκε. Θα το βρεις στα Ευρήματα."
-          : `Δεν αποθηκεύτηκε: ${res?.error || "άγνωστο σφάλμα"}`;
-        if (res?.ok) setTimeout(close, 1400);
-        else $("#save").disabled = false;
       });
+      if (!panel) return;                              // closed while saving
+      $("#hint").textContent = reply?.ok
+        ? texts.saved
+        : fillIn(texts.notSaved, { error: reply?.error || texts.unknownError });
+      if (reply?.ok) setTimeout(close, SAVED_CLOSE_MS);
+      else $("#save").disabled = false;
     };
   }
 
   function mountTrigger() {
     const found = findPosting();
-    if (!found) return;
-    if (document.getElementById("__jobora_save_btn")) return;
+    if (!found || document.getElementById(BUTTON_ID)) return;
 
-    const b = document.createElement("button");
-    b.id = "__jobora_save_btn";
-    b.type = "button";
-    b.textContent = "🎯 Αποθήκευση στο Jobora";
-    b.style.cssText = [
+    const button = document.createElement("button");
+    button.id = BUTTON_ID;
+    button.type = "button";
+    button.textContent = texts.button;
+    button.style.cssText = [
       "position:fixed", "z-index:2147483646", "right:18px", "bottom:18px",
       "padding:10px 14px", "border:0", "border-radius:10px",
       "background:#2563eb", "color:#fff", "font:600 13px/1 system-ui,sans-serif",
       "box-shadow:0 6px 22px -6px rgba(0,0,0,.6)", "cursor:pointer",
     ].join(";");
-    b.onclick = () => openForm(findPosting() || found);
-    document.documentElement.appendChild(b);
+    button.onclick = () => openForm(findPosting() || found);
+    document.documentElement.appendChild(button);
   }
 
-  // Οι σελίδες κοινωνικών δικτύων φορτώνουν περιεχόμενο συνέχεια· κοιτάμε ξανά
-  // όταν αλλάζει κάτι, αλλά με φρένο ώστε να μη ζορίζουμε τη σελίδα.
+  ask({ type: "saveTexts" }).then((reply) => {
+    if (reply && reply.ok) texts = { ...DEFAULT_TEXTS, ...reply.texts };
+    const button = document.getElementById(BUTTON_ID);
+    if (button) button.textContent = texts.button;
+  });
+
+  // Social sites load content all the time; look again when something
+  // changes, but with a pause, so the page is not slowed down.
   let timer = null;
   const recheck = () => {
     clearTimeout(timer);
-    timer = setTimeout(mountTrigger, 900);
+    timer = setTimeout(mountTrigger, RECHECK_MS);
   };
   recheck();
-  new MutationObserver(recheck).observe(document.documentElement,
-    { childList: true, subtree: true });
+  new MutationObserver(recheck).observe(document.documentElement, { childList: true, subtree: true });
 })();

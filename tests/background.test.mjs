@@ -178,4 +178,7 @@ test("the worker answers in the user's language, also before any scan", async ()
   const { texts } = await send({ type: "fillTexts" });
   assert.equal(texts.button, "🎯 Συμπλήρωση με Jobora");
   assert.match(texts.filled, /\{n\}/);
+  const save = await send({ type: "saveTexts" });
+  assert.equal(save.texts.button, "🎯 Αποθήκευση στο Jobora");
+  assert.match(save.texts.contact, /\{email\}/);
 });
