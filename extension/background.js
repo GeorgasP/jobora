@@ -12,6 +12,7 @@ import { euresSearchFor } from "./lib/scanplan.js";
 import { boardsWithPermission } from "./lib/portals.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
+import { findApplication } from "./lib/applications.js";
 import { pickCompanies } from "./lib/companies.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, t } from "./lib/i18n.js";
@@ -234,12 +235,22 @@ async function applyToJob(jobId, method = "assisted") {
   return { ok: true, app, letterModel: letter.model, letterError: letter.error || null };
 }
 
-/* ── Prefill payload για το content script ────────────────── */
-const idsIn = (url) => new Set((url.match(/\d{5,}/g) || []).concat(
-  (url.split("?")[0].split("/").filter(Boolean).slice(-1)[0] || "").toLowerCase()
-));
+/* ── What the application page gets ───────────────────────── */
 
-async function prefillFor(pageUrl) {
+// The texts the content scripts show on the application page. They run on
+// the employer's site, where the extension's translations cannot be loaded,
+// so the worker sends them along in the user's language.
+const FILL_TEXT_KEYS = ["button", "filling", "noFields", "noResponse", "filled", "cvAttached",
+  "required", "check", "leftForYou", "cvUpload", "noMatch"];
+const fillTexts = () => Object.fromEntries(FILL_TEXT_KEYS.map((key) => [key, t(`fill.${key}`)]));
+
+/**
+ * The answers for the form at `page` ({url, title}), and the application it
+ * belongs to (see applications.js). When no prepared application can be told
+ * apart, the form still gets the user's details and CV, but no cover letter:
+ * each letter is written to one company.
+ */
+async function prefillFor(page) {
   const [profile, cv, apps] = await Promise.all([
     store.getProfile(), store.getCV(), store.getApps(),
   ]);
@@ -247,38 +258,33 @@ async function prefillFor(pageUrl) {
     return { ok: false, error: t("fill.nothingPrepared") };
   }
 
-  const pageIds = idsIn(pageUrl || "");
-  let app = apps.find((a) => a.url === pageUrl);
-  if (!app) {
-    app = apps.find((a) => {
-      const ids = idsIn(a.url || "");
-      return [...pageIds].some((k) => k && ids.has(k));
-    });
-  }
-  if (!app) app = apps.find((a) => a.status === "prepared") || apps[0];
-
-  const parts = (profile.name || "").trim().split(/\s+/);
+  const app = findApplication(apps, page);
+  const [firstName = "", ...otherNames] = (profile.name || "").trim().split(/\s+/);
   return {
     ok: true,
-    applicationId: app.id,
-    job: { company: app.company, title: app.title, url: app.url },
+    applicationId: app ? app.id : null,
+    job: app ? { company: app.company, title: app.title, url: app.url } : null,
     answers: {
       full_name: profile.name,
-      first_name: parts[0] || "",
-      last_name: parts.slice(1).join(" "),
+      first_name: firstName,
+      last_name: otherNames.join(" "),
       email: profile.email,
       phone: profile.phone,
       location: profile.location,
       linkedin: profile.linkedin,
       github: profile.github,
-      website: profile.linkedin || profile.github,
+      // Nearly every form has a LinkedIn field of its own, so a website
+      // field gets the other link first. The form fills each link only once.
+      website: profile.github || profile.linkedin,
       work_authorization: profile.workAuthorization,
       notice_period: profile.noticePeriod,
       salary_expectation: profile.salaryMin ? String(profile.salaryMin) : "",
       how_did_you_hear: "Company careers page",
     },
-    cover_letter: app.coverLetter || "",
+    cover_letter: app ? app.coverLetter || "" : "",
+    notice: app ? "" : t("fill.noMatch"),
     cv: cv ? { filename: cv.filename, mime: cv.mime, base64: cv.base64 } : null,
+    texts: fillTexts(),
   };
 }
 
@@ -287,7 +293,8 @@ const HANDLERS = {
   scan: () => runScan({ silent: false }),
   matches: async () => ({ ok: true, matches: (await currentMatches()).slice(0, 200) }),
   apply: (msg) => applyToJob(msg.jobId, msg.method),
-  prefill: (msg) => prefillFor(msg.url),
+  prefill: (msg) => prefillFor({ url: msg.url, title: msg.title }),
+  fillTexts: async () => ({ ok: true, texts: fillTexts() }),
   dismiss: async (msg) => { await store.dismissJob(msg.jobId); await refreshBadge(); return { ok: true }; },
   refreshBadge: async () => ({ ok: true, count: await refreshBadge() }),
   /* Αγγελία που είδε ο χρήστης κάπου χωρίς API και θέλησε να κρατήσει.
@@ -321,9 +328,24 @@ ${j.contactEmail}`]
   },
 };
 
+/*
+ * Before any message: the settings migration, and the user's language. Chrome
+ * stops the worker whenever it is idle, and the language used to load only
+ * after a scan, so a fresh worker answered with bare keys such as
+ * "fill.nothingPrepared". Loading it per message also follows a language the
+ * user has just changed.
+ */
+async function prepare() {
+  await migrated;
+  await initI18n((await store.getProfile()).uiLanguage);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   const handler = HANDLERS[msg?.type];
   if (!handler) return false;
-  Promise.resolve(handler(msg)).then(respond).catch((e) => respond({ ok: false, error: String(e.message || e) }));
+  prepare()
+    .then(() => handler(msg))
+    .then(respond)
+    .catch((e) => respond({ ok: false, error: String(e.message || e) }));
   return true;                                   // async
 });

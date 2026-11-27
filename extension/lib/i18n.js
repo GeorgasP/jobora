@@ -51,14 +51,22 @@ async function fetchLocale(code) {
   return res.json();
 }
 
-/** Φορτώνει μια γλώσσα. Τα αγγλικά μένουν πάντα ως δίχτυ για κλειδιά που λείπουν. */
+// Each language file is read once: the service worker loads the user's
+// language before every message it answers. A failed read is not kept, so
+// the next call tries again.
+const loaded = new Map();
+async function stringsOf(code) {
+  if (!loaded.has(code)) {
+    try { loaded.set(code, await fetchLocale(code)); } catch { return {}; }
+  }
+  return loaded.get(code);
+}
+
+/** Loads a language. English always stays underneath, for keys a translation lacks. */
 export async function loadLanguage(code) {
   const wanted = SUPPORTED.has(code) ? code : DEFAULT;
-
-  if (!Object.keys(fallback).length) {
-    fallback = await fetchLocale(DEFAULT).catch(() => ({}));
-  }
-  strings = wanted === DEFAULT ? fallback : await fetchLocale(wanted).catch(() => ({}));
+  fallback = await stringsOf(DEFAULT);
+  strings = await stringsOf(wanted);
   current = wanted;
   // Ο service worker δεν έχει DOM· το ίδιο αρχείο τρέχει και εκεί (για τα
   // κείμενα των ειδοποιήσεων) και στις σελίδες.

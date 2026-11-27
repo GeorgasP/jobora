@@ -120,3 +120,62 @@ test("with permission, a scan asks ESCO once per title and EURES for the user's 
   await send({ type: "scan" });   // the occupation is remembered, not looked up again
   assert.equal(hits("ec.europa.eu").length, 1);
 });
+
+/* ── The application form ──────────────────────────────────── */
+const application = (id, url, company, status = "prepared") =>
+  ({ id, jobId: id, url, company, title: "Waiter", status, coverLetter: `Dear ${company} hiring team,` });
+const fillFor = (url, title = "") => send({ type: "prefill", url, title });
+
+test("an application form gets the application it belongs to, not the latest one", async () => {
+  storage.apps = [   // newest first, as the store keeps them
+    application("latest", "https://jobs.lever.co/other/0a1b2c3d-4e5f-6789-abcd-ef0123456789", "Other Co"),
+    application("lever", "https://jobs.lever.co/thalassa/8f3a2b1c-1234-4cde-9f00-123456789abc", "Thalassa"),
+    application("greenhouse", "https://boards.greenhouse.io/kyma/jobs/4567890", "Kyma"),
+  ];
+  const lever = await fillFor("https://jobs.lever.co/thalassa/8f3a2b1c-1234-4cde-9f00-123456789abc/apply");
+  assert.equal(lever.applicationId, "lever");
+  assert.equal(lever.cover_letter, "Dear Thalassa hiring team,");
+  assert.deepEqual(lever.job, { company: "Thalassa", title: "Waiter",
+    url: "https://jobs.lever.co/thalassa/8f3a2b1c-1234-4cde-9f00-123456789abc" });
+  // Greenhouse moves between hosts, and companies embed it with ?gh_jid=.
+  assert.equal((await fillFor("https://job-boards.greenhouse.io/kyma/jobs/4567890?gh_src=abc")).applicationId, "greenhouse");
+  assert.equal((await fillFor("https://kyma.example/careers?gh_jid=4567890")).applicationId, "greenhouse");
+  // The company's own careers site, known by its name.
+  assert.equal((await fillFor("https://careers.example/apply", "Thalassa | Careers")).applicationId, "lever");
+});
+
+test("a form no application matches gets the user's details but no cover letter", async () => {
+  Object.assign(storage.profile, { name: "Maria Papadopoulou", email: "maria@example.test",
+    linkedin: "https://www.linkedin.com/in/maria-example", github: "https://github.com/maria-example" });
+  const data = await fillFor("https://elsewhere.example/careers/openings", "Join us");
+  assert.equal(data.ok, true);
+  assert.equal(data.applicationId, null);
+  assert.equal(data.job, null);
+  assert.equal(data.cover_letter, "");
+  assert.ok(data.notice, "the user is told why the letter is missing");
+  assert.equal(data.answers.first_name, "Maria");
+  assert.equal(data.answers.email, "maria@example.test");
+  // LinkedIn has its own field on every form; a website field gets the other link.
+  assert.equal(data.answers.website, "https://github.com/maria-example");
+});
+
+test("with one application waiting to be sent, any form gets it", async () => {
+  storage.apps = [
+    application("waiting", "https://remotive.com/remote-jobs/hospitality/waiter-1234567", "Taverna"),
+    application("done", "https://jobs.lever.co/old/11111111-2222-3333-4444-555555555555", "Old", "sent"),
+  ];
+  const data = await fillFor("https://apply.example/form/9");
+  assert.equal(data.applicationId, "waiting");
+  assert.equal(data.cover_letter, "Dear Taverna hiring team,");
+});
+
+test("the worker answers in the user's language, also before any scan", async () => {
+  storage.profile.uiLanguage = "el";
+  storage.apps = [];
+  const data = await fillFor("https://apply.example/form/9");
+  assert.equal(data.ok, false);
+  assert.match(data.error, /^Δεν έχει ετοιμαστεί τίποτα/);
+  const { texts } = await send({ type: "fillTexts" });
+  assert.equal(texts.button, "🎯 Συμπλήρωση με Jobora");
+  assert.match(texts.filled, /\{n\}/);
+});
