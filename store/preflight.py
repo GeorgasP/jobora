@@ -230,8 +230,16 @@ print("3 · Κλειδιά που δεν χρησιμοποιούνται")
 # «reject.» χτίζεται με template literal από την κατηγορία απόρριψης,
 # οπότε καμία αναζήτηση κειμένου δεν θα το δει ως χρήση.
 dyn_prefixes = ("stage.", "settings.experience.", "time.", "popup.", "notify.",
-                "error.", "fill.", "reject.")
-unused = [k for k in en if k not in used and not k.startswith(dyn_prefixes)]
+                "error.", "fill.", "save.", "reject.")
+# Keys also reach t() through a variable (a ternary that picks "header.scanning")
+# or a template literal (`onboarding.found.${key}`). For finding unused keys,
+# any quoted mention, or a template literal's fixed start, counts as use.
+mentioned, prefixes = set(), set(dyn_prefixes)
+for src in js_files.values():
+    clean = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", src)
+    mentioned |= set(re.findall(r'["\']([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)["\']', clean))
+    prefixes |= set(re.findall(r'`([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*\.)\$\{', clean))
+unused = [k for k in en if k not in used and k not in mentioned and not k.startswith(tuple(prefixes))]
 if unused: warn(f"{len(unused)} αχρησιμοποίητα: {', '.join(unused[:6])}{'…' if len(unused) > 6 else ''}")
 print(f"   {len(unused)}\n")
 
