@@ -26,7 +26,6 @@ LIBRARY: list[dict] = [
     {"provider": "ashby",      "slug": "openai",     "name": "OpenAI",     "industries": ["tech", "ai"], "regions": ["global"]},
     {"provider": "greenhouse", "slug": "scaleai",    "name": "Scale AI",   "industries": ["tech", "ai"], "regions": ["global"]},
     {"provider": "greenhouse", "slug": "stripe",     "name": "Stripe",     "industries": ["tech", "fintech"], "regions": ["global"]},
-    {"provider": "greenhouse", "slug": "remotecom",  "name": "Remote.com", "industries": ["tech", "hr"], "regions": ["global", "remote"]},
 
     # ── Fintech / banking / payments ───────────────────────────
     {"provider": "greenhouse", "slug": "robinhood",  "name": "Robinhood",  "industries": ["fintech", "trading"], "regions": ["us"]},
@@ -45,7 +44,7 @@ LIBRARY: list[dict] = [
     {"provider": "greenhouse", "slug": "bitgo",      "name": "BitGo",      "industries": ["crypto"], "regions": ["us", "global"]},
     {"provider": "greenhouse", "slug": "falconx",    "name": "FalconX",    "industries": ["crypto", "trading"], "regions": ["global"]},
     {"provider": "greenhouse", "slug": "binance",    "name": "Binance",    "industries": ["crypto", "trading"], "regions": ["global", "remote"]},
-    {"provider": "lever",      "slug": "ledger",     "name": "Ledger",     "industries": ["crypto"], "regions": ["eu"]},
+    {"provider": "ashby",      "slug": "ledger",     "name": "Ledger",     "industries": ["crypto"], "regions": ["eu"]},
 
     # ── Consumer / marketplaces / delivery ─────────────────────
     {"provider": "greenhouse", "slug": "airbnb",     "name": "Airbnb",     "industries": ["consumer", "travel"], "regions": ["global"]},
@@ -56,7 +55,6 @@ LIBRARY: list[dict] = [
 
     # ── Gaming ─────────────────────────────────────────────────
     {"provider": "greenhouse", "slug": "riotgames",  "name": "Riot Games", "industries": ["gaming"], "regions": ["global"]},
-    {"provider": "greenhouse", "slug": "kaizengaming", "name": "Kaizen Gaming", "industries": ["gaming", "betting"], "regions": ["eu"]},
 
     # ── Education ──────────────────────────────────────────────
     {"provider": "greenhouse", "slug": "coursera",   "name": "Coursera",   "industries": ["education"], "regions": ["global", "remote"]},
@@ -64,7 +62,7 @@ LIBRARY: list[dict] = [
     {"provider": "workable",   "slug": "epignosis",  "name": "Epignosis",  "industries": ["education", "saas"], "regions": ["eu"]},
 
     # ── Health / logistics / marketing ─────────────────────────
-    {"provider": "greenhouse", "slug": "cerebral",   "name": "Cerebral",   "industries": ["health"], "regions": ["us", "remote"]},
+    {"provider": "ashby",      "slug": "doctolib",   "name": "Doctolib",   "industries": ["health"], "regions": ["eu"]},
     {"provider": "greenhouse", "slug": "flexport",   "name": "Flexport",   "industries": ["logistics", "tech"], "regions": ["global"]},
     {"provider": "greenhouse", "slug": "klaviyo",    "name": "Klaviyo",    "industries": ["marketing", "saas"], "regions": ["global"]},
 
