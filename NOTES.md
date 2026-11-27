@@ -50,7 +50,8 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
   against `tests/fixtures/application-matching.json`.
 - Tests: 108 Node, 22 Python, 5 browser pages (see `extension/README.md`),
   one of them a whole scan through the service worker.
-- Still to do: the 1.2.0 store package.
+- 1.2.0 is packaged (`python store/package.py`, preflight 0 errors); it goes
+  to the store once pull request #3 is merged.
 
 ### 2026-11-27 (later) · Claude (for Panos) · Portal permissions and CV formats
 
