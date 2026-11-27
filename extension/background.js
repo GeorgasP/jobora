@@ -7,8 +7,8 @@
  */
 import * as store from "./lib/store.js";
 import { fetchAll, getJSON } from "./lib/sources.js";
-import { lookUpOccupations } from "./lib/esco.js";
-import { euresSearchFor } from "./lib/scanplan.js";
+import { lookUpOccupations, occupationNames } from "./lib/esco.js";
+import { euresSearchFor, nationalSearchFor, needsNationalPortals } from "./lib/scanplan.js";
 import { boardsWithPermission } from "./lib/portals.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
@@ -41,6 +41,7 @@ const MIGRATIONS = [
   { version: 6, boards: ["ordino"] },
   { version: 7, boards: ["eures"] },
   { version: 8, boards: ["jobfind", "xe"] },
+  { version: 9, boards: ["jobtech", "nav"] },
 ];
 const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
@@ -140,6 +141,27 @@ async function withTitleOccupations(profile) {
   return { ...profile, titleOccupations };
 }
 
+/**
+ * Adds the names of the user's occupations in ESCO's languages, which the
+ * national portals are searched in (see esco.js). One lookup per
+ * occupation, kept; a lookup that fails is retried on the next scan.
+ */
+async function withOccupationNames(profile) {
+  const names = { ...(profile.occupationNames || {}) };
+  let found = false;
+  for (const occupation of new Set(Object.values(profile.titleOccupations || {}).flat())) {
+    if (names[occupation]) continue;
+    try {
+      names[occupation] = await occupationNames(occupation, getJSON);
+      found = true;
+    } catch (e) {
+      console.warn(`Jobora: ESCO names failed for ${occupation} —`, e);
+    }
+  }
+  if (found) await store.saveProfile({ occupationNames: names });
+  return { ...profile, occupationNames: names };
+}
+
 async function runScan({ silent = false } = {}) {
   if (scanning) return { ok: false, error: t("error.scanRunning") };
   scanning = true;
@@ -150,8 +172,12 @@ async function runScan({ silent = false } = {}) {
     const stored = await store.getProfile();
     // Portals whose sites the user hasn't allowed are left out (see lib/portals.js).
     const boards = await boardsWithPermission(stored.boards);
-    // ESCO is only needed for EURES, and lives on a site EURES's permission covers.
-    const profile = boards.includes("eures") ? await withTitleOccupations(stored) : stored;
+    // ESCO names the user's titles for EURES and for the national portals, and
+    // lives on a site EURES's permission covers.
+    const escoAllowed = boards.includes("eures");
+    let profile = escoAllowed ? await withTitleOccupations(stored) : stored;
+    const national = escoAllowed && needsNationalPortals(profile, boards);
+    if (national) profile = await withOccupationNames(profile);
     const targets = profile.targets?.length ? profile.targets : pickCompanies(profile.industries);
     const sources = [];
 
@@ -165,6 +191,7 @@ async function runScan({ silent = false } = {}) {
         countries: profile.adzunaCountries,
       },
       eures: euresSearchFor(profile),
+      national: national ? nationalSearchFor(profile) : {},
     });
 
     const { added, total } = await store.mergeJobs(jobs);

@@ -5,7 +5,7 @@
  * CSP καμίας σελίδας. Καμία σύνδεση με LinkedIn/Indeed: το απαγορεύουν τα ToS
  * τους και μπλοκάρουν λογαριασμούς.
  */
-import { countryFromCode, countryLabel } from "./places.js";
+import { countryFromCode, countryLabel, fold } from "./places.js";
 
 const UA_TIMEOUT = 20000;
 
@@ -248,6 +248,83 @@ function euresJob(vacancy) {
       postedAt: iso(vacancy.creationDate),
       occupations: vacancy.jobCategoriesCodes || [],
     });
+}
+
+/* ── National employment services ────────────────────────── */
+
+// An ad is for the user's occupation when its title names it. Swedish and
+// Norwegian compounds put the head word last: an "intensivsykepleier" is a
+// sykepleier, and an ad for a plain "sjåfør" may be the "lastebilsjåfør" the
+// user wants. Shorter words are too common to judge by their ending.
+const MIN_HEAD_WORD = 5;
+export function namesOccupation(text, name) {
+  const head = fold(name).split(/\s+/).at(-1) || "";
+  if (head.length < MIN_HEAD_WORD) return fold(text).includes(fold(name));
+  return fold(text).split(/[^\p{L}]+/u)
+    .some((word) => word.length >= MIN_HEAD_WORD && (word.endsWith(head) || head.endsWith(word)));
+}
+
+const titleCase = (text) => (text || "").toLowerCase().replace(/(^|[\s-])\p{L}/gu, (start) => start.toUpperCase());
+
+const JOBTECH_SEARCH = "https://jobsearch.api.jobtechdev.se/search";
+const JOBTECH_RESULTS = 100;                       // the largest page the API returns
+
+/** One Platsbanken ad as a job, found while searching for `occupation`. */
+function jobtechJob(ad, occupation) {
+  const place = ad.workplace_address || {};
+  const town = place.municipality || place.city || place.region || "";
+  return job("jobtech", ad.id, ad.employer?.name, ad.headline,
+    ad.webpage_url || `https://arbetsformedlingen.se/platsbanken/annonser/${encodeURIComponent(ad.id)}`, {
+      location: [town, "Sweden"].filter(Boolean).join(", "),
+      country: "sweden",
+      description: ad.description?.text || "",
+      postedAt: iso(ad.publication_date),
+      occupations: [occupation],
+    });
+}
+
+const NAV_FEED = "https://pam-stilling-feed.nav.no";
+const NAV_DAYS = 3;                                 // new ads appear every day
+const NAV_PAGES = 12;                               // at most 12,000 changes read per scan
+const DAY_MS = 24 * 3600 * 1000;
+// A JSON Web Token: three base64url parts joined by dots.
+const JWT = /^[\w-]+\.[\w-]+\.[\w-]+$/;
+
+/** One arbeidsplassen.no ad (a feed entry) as a job, found for `occupation`. */
+function navJob(entry, occupation) {
+  return job("nav", entry.uuid, titleCase(entry.businessName), entry.title,
+    `https://arbeidsplassen.nav.no/stillinger/stilling/${encodeURIComponent(entry.uuid)}`, {
+      location: [titleCase(entry.municipal), "Norway"].filter(Boolean).join(", "),
+      country: "norway",
+      postedAt: iso(entry.sistEndret),
+      occupations: [occupation],
+    });
+}
+
+/** The ads changed in NAV's feed since `since`, newest state of each, by uuid. */
+async function navChangesSince(token, since) {
+  const latest = new Map();
+  let url = `${NAV_FEED}/api/v1/feed`;
+  for (let page = 0; page < NAV_PAGES && url; page++) {
+    const headers = { accept: "application/json", authorization: `Bearer ${token}` };
+    // The start time picks the first page; the pages after it follow from there.
+    if (page === 0) headers["if-modified-since"] = since.toUTCString();
+    let feed;
+    try {
+      feed = await (await request(url, { headers })).json();
+    } catch (e) {
+      if (String(e.message).includes("304")) break;   // nothing changed since then
+      throw e;
+    }
+    const items = feed.items || [];
+    for (const item of items) {
+      const entry = item._feed_entry || {};
+      if (entry.uuid) latest.set(entry.uuid, entry);   // later entries are newer states
+    }
+    if (!items.length || !feed.next_url) break;
+    url = new URL(feed.next_url, NAV_FEED).href;
+  }
+  return latest;
 }
 
 /* ── ATS providers: στοχευμένες εταιρείες ─────────────────── */
@@ -531,6 +608,49 @@ export const BOARDS = {
         out.push(...vacancies.map(euresJob));
         if (vacancies.length < EURES_PAGE_SIZE) break;
       }
+    }
+    return out;
+  },
+
+  /*
+   * Sweden: Arbetsförmedlingen's Platsbanken, every job advertised in Sweden
+   * in every industry, through its open JobSearch API (JobTech, CC0, no key).
+   * Searched with the user's occupations named in Swedish
+   * (opts.national.sweden, from ESCO); an ad counts when its headline or its
+   * own occupation names one.
+   */
+  async jobtech(query, opts = {}) {
+    const out = [];
+    for (const { occupation, name } of opts.national?.sweden || []) {
+      const params = new URLSearchParams({ q: name, limit: String(JOBTECH_RESULTS), sort: "pubdate-desc" });
+      const found = await getJSON(`${JOBTECH_SEARCH}?${params}`);
+      for (const ad of found.hits || []) {
+        if (namesOccupation(`${ad.headline} ${ad.occupation?.label || ""}`, name)) out.push(jobtechJob(ad, occupation));
+      }
+    }
+    return out;
+  },
+
+  /*
+   * Norway: NAV's arbeidsplassen.no, most of the vacancies advertised in
+   * Norway, through NAV's job vacancy feed: free, with the public token NAV
+   * publishes for it. The feed lists every change to every ad instead of
+   * answering searches, so a scan reads the changes of the last few days and
+   * keeps the active ads whose titles name the user's occupations in
+   * Norwegian (opts.national.norway).
+   */
+  async nav(query, opts = {}) {
+    const terms = opts.national?.norway || [];
+    if (!terms.length) return [];
+    const published = await getText(`${NAV_FEED}/api/publicToken`);
+    const token = published.split(/\s+/).find((word) => JWT.test(word));
+    if (!token) throw new Error("no public token in NAV's answer");
+    const ads = await navChangesSince(token, new Date(Date.now() - NAV_DAYS * DAY_MS));
+    const out = [];
+    for (const entry of ads.values()) {
+      if (entry.status !== "ACTIVE") continue;
+      const term = terms.find(({ name }) => namesOccupation(entry.title || "", name));
+      if (term) out.push(navJob(entry, term.occupation));
     }
     return out;
   },

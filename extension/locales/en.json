@@ -276,13 +276,13 @@
   "settings.portals.title": "Jobs in every industry",
   "settings.portals.hint": "recommended",
   "settings.portals": "Public job portals",
-  "settings.portals.help": "EURES, the EU's job portal, and the Greek boards jobfind.gr and xe.gr: nurses, waiters, drivers, not only software. Chrome asks you to allow these sites.",
+  "settings.portals.help": "EURES, the EU's job portal, the public employment services of the countries you choose, and the Greek boards jobfind.gr and xe.gr: nurses, waiters, drivers, not only software. Chrome asks you to allow these sites.",
   "settings.portals.on": "Job portals turned on. They are included from the next search.",
   "settings.portals.off": "Job portals turned off.",
   "settings.portals.denied": "Chrome did not allow the sites, so the job portals stay off.",
   "offer.portals": "Find jobs in every industry",
-  "offer.portals.help": "Turn on EURES and the Greek job boards: nurses, waiters, drivers, not only software.",
+  "offer.portals.help": "Turn on EURES, your countries' employment services and the Greek job boards: nurses, waiters, drivers, not only software.",
   "offer.portals.on": "Turn on",
   "offer.portals.later": "Not now",
-  "onboarding.portals.note": "Chrome will ask to let Jobora read EURES and two Greek job boards. Allow it to find jobs in every industry."
+  "onboarding.portals.note": "Chrome will ask to let Jobora read EURES, the employment services of the countries you chose, and two Greek job boards. Allow it to find jobs in every industry."
 }

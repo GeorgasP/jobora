@@ -276,13 +276,13 @@
   "settings.portals.title": "Vagas em todos os setores",
   "settings.portals.hint": "recomendado",
   "settings.portals": "Portais públicos de emprego",
-  "settings.portals.help": "O EURES, o portal de emprego da UE, e os sites gregos jobfind.gr e xe.gr: enfermeiros, empregados de mesa, motoristas, não só software. O Chrome vai pedir-te para permitires estes sites.",
+  "settings.portals.help": "O EURES, o portal de emprego da UE, os serviços públicos de emprego dos países que escolheres e os sites gregos jobfind.gr e xe.gr: enfermeiros, empregados de mesa, motoristas, não só software. O Chrome vai pedir-te para permitires estes sites.",
   "settings.portals.on": "Portais de emprego ativados. Entram a partir da próxima pesquisa.",
   "settings.portals.off": "Portais de emprego desativados.",
   "settings.portals.denied": "O Chrome não permitiu os sites, por isso os portais de emprego continuam desativados.",
   "offer.portals": "Encontra vagas em todos os setores",
-  "offer.portals.help": "Ativa o EURES e os sites de emprego gregos: enfermeiros, empregados de mesa, motoristas, não só software.",
+  "offer.portals.help": "Ativa o EURES, os serviços de emprego dos teus países e os sites de emprego gregos: enfermeiros, empregados de mesa, motoristas, não só software.",
   "offer.portals.on": "Ativar",
   "offer.portals.later": "Agora não",
-  "onboarding.portals.note": "O Chrome vai pedir-te autorização para o Jobora ler o EURES e dois sites de emprego gregos. Permite para encontrares vagas em todos os setores."
+  "onboarding.portals.note": "O Chrome vai pedir-te autorização para o Jobora ler o EURES, os serviços de emprego dos países que escolheste e dois sites de emprego gregos. Permite para encontrares vagas em todos os setores."
 }

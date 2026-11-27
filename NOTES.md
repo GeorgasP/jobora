@@ -12,6 +12,26 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
+### 2026-11-27 (late night) · Claude (for Panos and Apo) · National employment services
+
+- New `SOURCES.md`: every source by country, what each other country would
+  need, and why some are closed. Please keep it current.
+- Sweden (Arbetsförmedlingen, open JobTech API) and Norway (NAV's feed, with
+  its public token) are new sources, in `extension/lib/sources.js` as
+  `jobtech` and `nav`. They run only for users who can work in that country,
+  searched in the country's language: ESCO names every occupation in 28
+  languages, looked up once and kept in `profile.occupationNames`.
+- Adding another country: an entry in `NATIONAL_PORTALS`
+  (`extension/lib/portals.js`), its board in `sources.js`, its site in the
+  manifest's optional permissions, and the privacy texts (`store/`).
+- The permission question now names only the user's own countries' sites
+  (`portalOriginsFor`), so a Greek user is never asked for Norway's.
+- EURES was down on 2026-11-27 (European Commission "service unavailable");
+  scans go on without it.
+- For Panos: most of the world (Asia, the Americas, Africa) has no open job
+  API; Careerjet and Jooble would cover it, but only from a server. See the
+  end of `SOURCES.md`.
+
 ### 2026-11-27 (night) · Claude (for Panos and Apo) · PDFs that read as empty
 
 - For Apo: your `ApoCVeng.pdf` gave 17 characters. Without the file I fixed

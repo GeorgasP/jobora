@@ -83,6 +83,8 @@
     "https://ec.europa.eu/*",
     "https://www.jobfind.gr/*",
     "https://www.xe.gr/*",
+    "https://jobsearch.api.jobtechdev.se/*",
+    "https://pam-stilling-feed.nav.no/*",
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",
     "*://*.reddit.com/*",

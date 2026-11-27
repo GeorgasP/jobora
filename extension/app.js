@@ -6,7 +6,8 @@ import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { refreshRates } from "./lib/fx.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES, currentLanguage } from "./lib/i18n.js";
-import { PORTAL_ORIGINS, portalsAllowed } from "./lib/portals.js";
+import { PORTAL_ORIGINS, portalOriginsFor, portalsAllowed } from "./lib/portals.js";
+import { countriesOf } from "./lib/scanplan.js";
 import { MATCH_FILTERS, countMatches } from "./lib/filters.js";
 
 const $ = (s) => document.querySelector(s);
@@ -94,7 +95,7 @@ const stageName = (key) => t(`stage.${key}`);
 // Είναι το τίμημα του δωρεάν κλειδιού και είναι δίκαιο: τα δεδομένα δικά τους.
 const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs", eures: "EURES",
                         skywalker: "Skywalker.gr", jobfind: "Jobfind.gr", xe: "xe.gr",
-                        psf: "ΠΣΦ", ordino: "Ordino" };
+                        psf: "ΠΣΦ", ordino: "Ordino", jobtech: "Arbetsförmedlingen", nav: "NAV" };
 const sourceLabel = (s) => SOURCE_LABELS[s] || s;
 
 const INDUSTRY_LABELS = { ai: "AI", hr: "HR", saas: "SaaS", fintech: "Fintech" };
@@ -166,6 +167,8 @@ async function load({ forms = true } = {}) {
   renderCards();
   renderBoard();
   if (forms) fillSettings();
+  // A country added in Settings can bring its own employment service to allow.
+  refreshPortals();
 }
 
 const initialsOf = (name) =>
@@ -820,9 +823,12 @@ async function setupSocialToggle() {
    manifest (see lib/portals.js), so an update never turns the extension off. */
 const PORTALS_OFFER_DISMISSED = "portalsOfferDismissed";
 
+/** The portal sites this user is asked for: the shared portals, and their countries' services. */
+const userPortalOrigins = () => portalOriginsFor(countriesOf(profile || {}));
+
 /** Shows whether the portals are on, and offers them above the matches until used or dismissed. */
 async function refreshPortals() {
-  const allowed = await portalsAllowed().catch(() => false);
+  const allowed = await portalsAllowed(userPortalOrigins()).catch(() => false);
   $("#tog-portals")?.classList.toggle("on", allowed);
   const { [PORTALS_OFFER_DISMISSED]: dismissed } = await chrome.storage.local.get(PORTALS_OFFER_DISMISSED);
   const offer = $("#portals-offer");
@@ -831,9 +837,18 @@ async function refreshPortals() {
 
 /** Asks Chrome for the portals' sites. Chrome only asks during a click, so call it from one. */
 async function turnPortalsOn() {
-  const granted = await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
+  const granted = await chrome.permissions.request({ origins: userPortalOrigins() }).catch(() => false);
   toast(t(granted ? "settings.portals.on" : "settings.portals.denied"), granted ? "ok" : "warn");
   await refreshPortals();
+}
+
+/** Gives back every portal site the user allowed, whichever countries they were for. */
+async function turnPortalsOff() {
+  const granted = [];
+  for (const origin of PORTAL_ORIGINS) {
+    if (await chrome.permissions.contains({ origins: [origin] }).catch(() => false)) granted.push(origin);
+  }
+  if (granted.length) await chrome.permissions.remove({ origins: granted }).catch(() => {});
 }
 
 function setupPortals() {
@@ -842,7 +857,7 @@ function setupPortals() {
     toggle.onclick = async (e) => {
       e.stopPropagation();
       if (!toggle.classList.contains("on")) return turnPortalsOn();
-      await chrome.permissions.remove({ origins: PORTAL_ORIGINS }).catch(() => {});
+      await turnPortalsOff();
       toast(t("settings.portals.off"), "ok");
       await refreshPortals();
     };
