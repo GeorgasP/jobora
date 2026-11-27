@@ -7,12 +7,13 @@ SQLite storage layer.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from .config import DB_PATH, ensure_dirs
+from .config import DB_PATH, LEGACY_DB_PATH, ensure_dirs
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -117,11 +118,31 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _adopt_legacy_database() -> None:
+    """
+    Takes over the database from before the rename to Jobora. The rename
+    changed the file's name and nothing moved it, so the engine started an
+    empty database beside the user's history. An empty jobora.db, which a
+    failed command leaves behind, counts as no database; one with data is
+    never replaced.
+    """
+    if not LEGACY_DB_PATH.exists():
+        return
+    if DB_PATH.exists() and DB_PATH.stat().st_size > 0:
+        return
+    os.replace(LEGACY_DB_PATH, DB_PATH)
+
+
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
     ensure_dirs()
+    _adopt_legacy_database()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # Any command can be the first one on a new machine, so every connection
+    # makes sure the tables exist; CREATE TABLE IF NOT EXISTS leaves existing
+    # ones alone.
+    conn.executescript(SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
@@ -134,8 +155,9 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    with connect() as conn:
-        conn.executescript(SCHEMA)
+    """Creates the database and its tables; every connect() does as well."""
+    with connect():
+        pass
 
 
 def get_or_create_user(conn: sqlite3.Connection, email: str, name: str | None = None) -> int:
