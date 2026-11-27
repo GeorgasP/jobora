@@ -1,0 +1,106 @@
+{
+  "about": "Which prepared application an application form belongs to. Both engines must agree: tests/applications.test.mjs checks extension/lib/applications.js and tests/test_applications.py checks jobora/applications.py against these same cases. Applications are listed newest first; expected is the id, or null for none.",
+  "groups": [
+    {
+      "rule": "the ad's own page, or a page under it, is that ad's application",
+      "apps": [
+        { "id": "workable", "url": "https://apply.workable.com/acme/j/9C8B7A6D5E/", "company": "Acme", "status": "prepared" },
+        { "id": "ashby", "url": "https://jobs.ashbyhq.com/kyma/3f2e1d0c-1111-4abc-8def-222233334444", "company": "Kyma", "status": "prepared" }
+      ],
+      "pages": [
+        { "url": "https://jobs.ashbyhq.com/kyma/3f2e1d0c-1111-4abc-8def-222233334444/application", "expected": "ashby" },
+        { "url": "https://apply.workable.com/acme/j/9C8B7A6D5E/apply/", "expected": "workable" },
+        { "url": "https://www.apply.workable.com/acme/j/9C8B7A6D5E#form", "expected": "workable" }
+      ]
+    },
+    {
+      "rule": "a shared job id links the ad and the form across sites",
+      "apps": [
+        { "id": "greenhouse", "url": "https://boards.greenhouse.io/acme/jobs/4567890", "company": "Acme", "status": "prepared" },
+        { "id": "smartrecruiters", "url": "https://jobs.smartrecruiters.com/Kyma/744000012345678-chef", "company": "Kyma", "status": "prepared" }
+      ],
+      "pages": [
+        { "url": "https://job-boards.greenhouse.io/acme/jobs/4567890?gh_src=abc", "expected": "greenhouse" },
+        { "url": "https://acme.example/careers/?gh_jid=4567890", "expected": "greenhouse" },
+        { "url": "https://careers.kyma.example/job/744000012345678", "expected": "smartrecruiters" }
+      ]
+    },
+    {
+      "rule": "generic path words link nothing",
+      "apps": [
+        { "id": "one", "url": "https://one.example/careers", "company": "One", "status": "sent" },
+        { "id": "two", "url": "https://two.example/jobs/apply", "company": "Two", "status": "sent" }
+      ],
+      "pages": [
+        { "url": "https://three.example/careers", "expected": null },
+        { "url": "https://three.example/apply", "expected": null }
+      ]
+    },
+    {
+      "rule": "a campaign number in the query is not a job id",
+      "apps": [{ "id": "four", "url": "https://four.example/job/20241105", "company": "Four", "status": "sent" }],
+      "pages": [{ "url": "https://three.example/form?utm_campaign=20241105", "expected": null }]
+    },
+    {
+      "rule": "a path segment with one digit is a title, not an id",
+      "apps": [{ "id": "five", "url": "https://five.example/software-engineer-2", "company": "Five", "status": "sent" }],
+      "pages": [{ "url": "https://six.example/software-engineer-2", "expected": null }]
+    },
+    {
+      "rule": "the company's own site is known by the company's name",
+      "apps": [
+        { "id": "taverna", "url": "https://remotive.com/remote-jobs/x-1234567", "company": "Taverna Thalassa S.A.", "status": "prepared" },
+        { "id": "kyma", "url": "https://remotive.com/remote-jobs/y-7654321", "company": "Kyma Hotels", "status": "prepared" }
+      ],
+      "pages": [
+        { "url": "https://tavernathalassa.bamboohr.com/careers/12", "expected": "taverna" },
+        { "url": "https://jobs.example/form", "title": "Kyma Hotels – Apply", "expected": "kyma" }
+      ]
+    },
+    {
+      "rule": "names too short to tell anything apart are not used",
+      "apps": [{ "id": "hp", "url": "https://x.example/1", "company": "HP", "status": "sent" }],
+      "pages": [{ "url": "https://shop.example/hp", "expected": null }]
+    },
+    {
+      "rule": "with no link, the only application waiting to be sent is used",
+      "apps": [
+        { "id": "sent", "url": "https://remotive.com/remote-jobs/y-7654321", "company": "Kyma", "status": "sent" },
+        { "id": "waiting", "url": "https://remotive.com/remote-jobs/x-1234567", "company": "Taverna", "status": "prepared" }
+      ],
+      "pages": [{ "url": "https://apply.example/form", "expected": "waiting" }]
+    },
+    {
+      "rule": "with no link and nothing waiting, none",
+      "apps": [{ "id": "sent", "url": "https://remotive.com/remote-jobs/y-7654321", "company": "Kyma", "status": "sent" }],
+      "pages": [{ "url": "https://apply.example/form", "expected": null }]
+    },
+    {
+      "rule": "with no link and two waiting, none: a guess puts one company's letter in another's form",
+      "apps": [
+        { "id": "first", "url": "https://remotive.com/remote-jobs/x-1234567", "company": "Taverna", "status": "prepared" },
+        { "id": "second", "url": "https://remotive.com/remote-jobs/z-1112223", "company": "Other", "status": "prepared" }
+      ],
+      "pages": [{ "url": "https://apply.example/form", "expected": null }]
+    },
+    {
+      "rule": "a page that matches several applications gets the newest",
+      "apps": [
+        { "id": "new", "url": "https://jobs.lever.co/acme/8f3a2b1c-1234-4cde-9f00-123456789abc", "company": "Acme", "status": "prepared" },
+        { "id": "old", "url": "https://jobs.lever.co/acme/8f3a2b1c-1234-4cde-9f00-123456789abc", "company": "Acme", "status": "sent" }
+      ],
+      "pages": [{ "url": "https://jobs.lever.co/acme/8f3a2b1c-1234-4cde-9f00-123456789abc/apply", "expected": "new" }]
+    },
+    {
+      "rule": "broken addresses do not throw",
+      "apps": [
+        { "id": "broken", "url": "not a url", "company": "Acme", "status": "prepared" },
+        { "id": "empty", "url": "", "company": "Kyma", "status": "prepared" }
+      ],
+      "pages": [
+        { "url": "https://apply.example/form", "expected": null },
+        { "url": "", "expected": null }
+      ]
+    }
+  ]
+}

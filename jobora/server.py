@@ -20,10 +20,14 @@ from pathlib import Path
 
 from . import apply as apply_mod
 from . import companies, db, letters, matcher, pipeline, sources
+from .applications import find_application
 from .config import Settings
 from .profile import Preferences, Profile
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+# The extension's form filler, also the bookmarklet's: one script for both.
+# It used to be copied here, and starting the dashboard copied the copy back
+# over the extension's, undoing every fix made in the extension since.
+PREFILL_SCRIPT = Path(__file__).resolve().parent.parent / "extension" / "content" / "prefill.js"
 
 _state: dict = {"profile": None, "settings": None, "scan": "idle", "flash": ""}
 _scan_lock = threading.Lock()
@@ -437,56 +441,32 @@ def action_settings(form: dict) -> str:
 # ════════════════════════════════════════════════════════════════
 # Autofill API — τροφοδοτεί το bookmarklet και το extension
 # ════════════════════════════════════════════════════════════════
-_ID_RE = re.compile(r"\d{5,}")
+NO_MATCH_NOTICE = "No prepared application matches this page, so the cover letter was left out."
 
 
-def _url_keys(url: str) -> set[str]:
-    """Ταυτότητες μέσα σε ένα URL αγγελίας (job id, slug) για αντιστοίχιση."""
-    if not url:
-        return set()
-    parsed = urllib.parse.urlparse(url)
-    keys = set(_ID_RE.findall(url))
-    tail = [p for p in parsed.path.split("/") if p]
-    if tail:
-        keys.add(tail[-1].lower())
-    return keys
-
-
-def find_application_for_url(conn, user_id: int, page_url: str):
-    """Ποια αίτηση αφορά η σελίδα που βλέπει ο χρήστης."""
-    rows = db.list_applications(conn, user_id)
-    if not rows:
-        return None
-
-    page_keys = _url_keys(page_url)
-    if page_keys:
-        for r in rows:
-            if r["url"] == page_url:
-                return r
-        for r in rows:
-            if page_keys & _url_keys(r["url"]):
-                return r
-
-    # Fallback: η τελευταία που ετοιμάστηκε — συνήθως αυτή που μόλις άνοιξες.
-    return rows[0]
-
-
-def prefill_payload(page_url: str) -> dict:
+def prefill_payload(page_url: str, page_title: str = "") -> dict:
+    """
+    The answers for the form at page_url, and the application it belongs to
+    (see applications.py). When no prepared application can be told apart,
+    the form still gets the user's details and CV, but no cover letter: each
+    letter is written to one company.
+    """
     profile: Profile = _state["profile"]
     settings: Settings = _state["settings"]
 
     with db.connect() as conn:
         uid = _uid(conn)
-        app = find_application_for_url(conn, uid, page_url)
-        if not app:
+        apps = db.list_applications(conn, uid)
+        if not apps:
             return {"ok": False, "error": "No application prepared yet. Hit Apply in the dashboard first."}
+        app = find_application(apps, page_url, page_title)
 
         letter = None
-        if app["cover_letter_id"]:
+        if app and app["cover_letter_id"]:
             row = conn.execute("SELECT content FROM cover_letters WHERE id = ?",
                                (app["cover_letter_id"],)).fetchone()
             letter = row["content"] if row else None
-        if not letter:
+        if app and not letter:
             letter, _model = letters.generate(dict(app), profile, settings)
 
     parts = (profile.name or "").split()
@@ -494,8 +474,9 @@ def prefill_payload(page_url: str) -> dict:
 
     payload = {
         "ok": True,
-        "application_id": app["id"],
-        "job": {"company": app["company"], "title": app["title"], "url": app["url"]},
+        "application_id": app["id"] if app else None,
+        "job": {"company": app["company"], "title": app["title"], "url": app["url"]} if app else None,
+        "notice": "" if app else NO_MATCH_NOTICE,
         "answers": {
             "full_name": profile.name,
             "first_name": parts[0] if parts else "",
@@ -505,7 +486,9 @@ def prefill_payload(page_url: str) -> dict:
             "location": profile.location,
             "linkedin": profile.linkedin,
             "github": profile.github,
-            "website": profile.linkedin or profile.github,
+            # Nearly every form has a LinkedIn field of its own, so a website
+            # field gets the other link first. The form fills each link only once.
+            "website": profile.github or profile.linkedin,
             "work_authorization": profile.work_authorization,
             "notice_period": profile.notice_period or "Immediately available",
             "salary_expectation": salary,
@@ -526,12 +509,13 @@ def prefill_payload(page_url: str) -> dict:
 
 def _bookmarklet(token: str, port: int) -> str:
     """Ένα bookmarklet που κατεβάζει τα δεδομένα και τρέχει τον filler inline."""
-    filler = (STATIC_DIR / "prefill.js").read_text(encoding="utf-8")
+    filler = PREFILL_SCRIPT.read_text(encoding="utf-8")
     code = (
         "(function(){"
         f"var B='http://127.0.0.1:{port}';var T='{token}';"
         + filler +
-        "fetch(B+'/api/prefill?token='+T+'&url='+encodeURIComponent(location.href))"
+        "fetch(B+'/api/prefill?token='+T+'&url='+encodeURIComponent(location.href)"
+        "+'&title='+encodeURIComponent(document.title))"
         ".then(function(r){return r.json()})"
         ".then(function(d){if(!d.ok){alert('Jobora: '+d.error);return}window.__joboraFill(d)})"
         ".catch(function(e){alert('Jobora could not reach the dashboard at '+B+"
@@ -716,13 +700,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "invalid or missing token"}, 403)
                 return
             try:
-                self._send_json(prefill_payload((query.get("url") or [""])[0]))
+                self._send_json(prefill_payload((query.get("url") or [""])[0], (query.get("title") or [""])[0]))
             except Exception as e:
                 self._send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
             return
 
         if path == "/static/prefill.js":
-            body = (STATIC_DIR / "prefill.js").read_bytes()
+            body = PREFILL_SCRIPT.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -772,18 +756,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(_page("Not found", "matches", '<div class="empty">404</div>'), 404)
 
 
-def _sync_extension_filler() -> None:
-    """Το extension δεν διαβάζει αρχεία εκτός του φακέλου του — κρατάμε αντίγραφο
-    του filler συγχρονισμένο ώστε να μη ξεχαστεί ποτέ ενημέρωση."""
-    source = STATIC_DIR / "prefill.js"
-    target = Path(__file__).resolve().parent.parent / "extension" / "content" / "prefill.js"
-    try:
-        if not target.exists() or target.read_bytes() != source.read_bytes():
-            target.write_bytes(source.read_bytes())
-    except OSError:
-        pass
-
-
 def serve(profile: Profile, settings: Settings, port: int = 8765,
           open_browser: bool = True) -> None:
     _state["profile"] = profile
@@ -791,7 +763,6 @@ def serve(profile: Profile, settings: Settings, port: int = 8765,
     _state["port"] = port
     db.init_db()
     settings.ensure_token()
-    _sync_extension_filler()
 
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
