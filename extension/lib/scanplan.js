@@ -4,7 +4,7 @@
  * of background.js so it can be tested without a browser.
  */
 import { countryCode, placesIn, regionsOf, resolvePlace } from "./places.js";
-import { NATIONAL_PORTALS } from "./portals.js";
+import { portalsFor } from "./portals.js";
 
 // EURES covers the EU, the EEA and Switzerland.
 const inEures = (country) => regionsOf(country).includes("eu") || country === "switzerland";
@@ -44,26 +44,36 @@ export function euresSearchFor(profile) {
   return codes.length ? { occupations, countries: codes } : null;
 }
 
-/** Whether a national employment service among the allowed boards has something to do for this user. */
+/** Whether a national source among the allowed boards has something to do for this user. */
 export const needsNationalPortals = (profile, boards = []) =>
-  countriesOf(profile).some((country) => NATIONAL_PORTALS[country] && boards.includes(NATIONAL_PORTALS[country].board));
+  countriesOf(profile).some((country) => portalsFor(country).some((portal) => boards.includes(portal.board)));
+
+/** The languages the user's national sources are matched in, and English, which many ads use. */
+export const nationalLanguages = (profile) =>
+  [...new Set([...countriesOf(profile).flatMap((country) => portalsFor(country).map((portal) => portal.language)), "en"])];
+
+// Names were kept as one string before they became lists.
+const listOf = (value) => [].concat(value || []);
 
 /**
- * What a scan asks each national employment service: for every country the
- * user can work in that has one, the user's occupations named in that
- * country's language (from ESCO, profile.occupationNames), as
- * { sweden: [{ occupation, name: "sjuksköterska" }], … }. Occupations ESCO
- * has no name for in that language are left out.
+ * What a scan asks each country's own sources: for every country the user
+ * can work in that has some, the user's occupations with their names in the
+ * country's language and then in English (from ESCO, profile.occupationNames),
+ * as { sweden: [{ occupation, names: ["sjuksköterska", …, "nurse"] }], … }.
+ * Occupations with no name at all are left out.
  */
 export function nationalSearchFor(profile) {
   const occupations = occupationsOf(profile);
   const plan = {};
   for (const country of countriesOf(profile)) {
-    const portal = NATIONAL_PORTALS[country];
+    const [portal] = portalsFor(country);
     if (!portal) continue;
     const terms = occupations
-      .map((occupation) => ({ occupation, name: profile.occupationNames?.[occupation]?.[portal.language] }))
-      .filter((term) => term.name);
+      .map((occupation) => {
+        const names = profile.occupationNames?.[occupation] || {};
+        return { occupation, names: [...new Set([...listOf(names[portal.language]), ...listOf(names.en)])] };
+      })
+      .filter((term) => term.names.length);
     if (terms.length) plan[country] = terms;
   }
   return plan;

@@ -8,7 +8,7 @@
 import * as store from "./lib/store.js";
 import { fetchAll, getJSON } from "./lib/sources.js";
 import { lookUpOccupations, occupationNames } from "./lib/esco.js";
-import { euresSearchFor, nationalSearchFor, needsNationalPortals } from "./lib/scanplan.js";
+import { euresSearchFor, nationalLanguages, nationalSearchFor, needsNationalPortals } from "./lib/scanplan.js";
 import { boardsWithPermission } from "./lib/portals.js";
 import { rankJobs } from "./lib/matcher.js";
 import { generateLetter } from "./lib/letters.js";
@@ -42,6 +42,7 @@ const MIGRATIONS = [
   { version: 7, boards: ["eures"] },
   { version: 8, boards: ["jobfind", "xe"] },
   { version: 9, boards: ["jobtech", "nav"] },
+  { version: 10, boards: ["overheid", "meesterbaan", "academictransfer"] },
 ];
 const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
@@ -142,17 +143,21 @@ async function withTitleOccupations(profile) {
 }
 
 /**
- * Adds the names of the user's occupations in ESCO's languages, which the
- * national portals are searched in (see esco.js). One lookup per
- * occupation, kept; a lookup that fails is retried on the next scan.
+ * Adds the names of the user's occupations in the languages of their
+ * countries' own sources (see esco.js). Each occupation is looked up once and
+ * kept, and again only when a new country needs a language it lacks; a
+ * lookup that fails is retried on the next scan.
  */
 async function withOccupationNames(profile) {
+  const languages = nationalLanguages(profile);
   const names = { ...(profile.occupationNames || {}) };
+  // Kept as lists: a plain string is the shape before alternatives were kept.
+  const complete = (known) => known && languages.every((language) => Array.isArray(known[language]));
   let found = false;
   for (const occupation of new Set(Object.values(profile.titleOccupations || {}).flat())) {
-    if (names[occupation]) continue;
+    if (complete(names[occupation])) continue;
     try {
-      names[occupation] = await occupationNames(occupation, getJSON);
+      names[occupation] = { ...(names[occupation] || {}), ...(await occupationNames(occupation, getJSON, languages)) };
       found = true;
     } catch (e) {
       console.warn(`Jobora: ESCO names failed for ${occupation} —`, e);

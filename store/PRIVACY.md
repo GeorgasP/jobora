@@ -74,8 +74,12 @@ Arbetsförmedlingen's job search (`jobsearch.api.jobtechdev.se`), which receives
 the name of each occupation you look for, in Swedish, as ESCO gives it. For
 Norway it is NAV's job vacancy feed (`pam-stilling-feed.nav.no`), which is read
 with the public access token NAV publishes and receives nothing about your
-search; the ads are filtered on your computer. Your CV, name and contact
-details are never sent to either.
+search; the ads are filtered on your computer. For the Netherlands they are
+Werken bij de Overheid (`www.werkenbijdeoverheid.nl`), Meesterbaan
+(`www.meesterbaan.nl`) and AcademicTransfer (`www.academictransfer.com`):
+Jobora reads their public lists of vacancies, and then the public pages of
+the ads whose titles match yours; nothing about you or your search is sent.
+Your CV, name and contact details are never sent to any of them.
 
 **2. Currency exchange rates.** Once a day the extension requests published
 exchange rates from `open.er-api.com`, so that a minimum salary you set in one

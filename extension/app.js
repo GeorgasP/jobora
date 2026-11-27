@@ -95,7 +95,9 @@ const stageName = (key) => t(`stage.${key}`);
 // Είναι το τίμημα του δωρεάν κλειδιού και είναι δίκαιο: τα δεδομένα δικά τους.
 const SOURCE_LABELS = { adzuna: "Jobs by Adzuna", devitjobs: "DevITjobs", eures: "EURES",
                         skywalker: "Skywalker.gr", jobfind: "Jobfind.gr", xe: "xe.gr",
-                        psf: "ΠΣΦ", ordino: "Ordino", jobtech: "Arbetsförmedlingen", nav: "NAV" };
+                        psf: "ΠΣΦ", ordino: "Ordino", jobtech: "Arbetsförmedlingen", nav: "NAV",
+                        overheid: "Werken bij de Overheid", meesterbaan: "Meesterbaan",
+                        academictransfer: "AcademicTransfer" };
 const sourceLabel = (s) => SOURCE_LABELS[s] || s;
 
 const INDUSTRY_LABELS = { ai: "AI", hr: "HR", saas: "SaaS", fintech: "Fintech" };
