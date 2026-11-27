@@ -103,6 +103,23 @@ application.
 Interface in eight languages. Free, open source, no upsell.
 ```
 
+**Additional fields**, at the bottom of the same tab. Each address must open
+without a login, or the dashboard will not publish ("Homepage URL is not
+reachable"). `python store/preflight.py` opens all of them, the privacy policy
+URL below included. Paste them again whenever the repository is renamed:
+github.com redirects an old repository name, but GitHub Pages does not, so
+`georgasp.github.io/<old name>/` answers 404.
+
+**Homepage URL:**
+```
+https://georgasp.github.io/jobora/
+```
+
+**Support URL:**
+```
+https://github.com/GeorgasP/jobora/issues
+```
+
 ---
 
 ## Privacy practices tab

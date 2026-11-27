@@ -15,6 +15,9 @@ notifications and form filling need a real Chrome.
 import json, pathlib, re, sys, zipfile
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+# store/ is this script's own folder, so Python finds its modules directly.
+import listing
+
 # Found from this file's own location (<project>/store/preflight.py), so the
 # check works wherever the repository is cloned or moved to.
 PROJECT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -114,18 +117,19 @@ else:
 PUBLISHED_ID = "fbaoaohhakcbkebgnmpjnoilippdhioi"
 try:
     import urllib.request
+    # In English, because the page is read by its "Version" label.
     req = urllib.request.Request(
-        f"https://chromewebstore.google.com/detail/{PUBLISHED_ID}",
+        f"https://chromewebstore.google.com/detail/{PUBLISHED_ID}?hl=en",
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"})
     page = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
-    live = re.search(r"(\d+\.\d+(?:\.\d+){0,2})(?=[^<]{0,40}(?:Version|version))", page)
+    live = listing.published_version(page)
     if live:
         def tup(v): return tuple(int(x) for x in v.split("."))
-        if tup(m["version"]) <= tup(live.group(1)):
-            bad(f"η έκδοση {m['version']} δεν ξεπερνάει τη δημοσιευμένη {live.group(1)}")
+        if tup(m["version"]) <= tup(live):
+            bad(f"η έκδοση {m['version']} δεν ξεπερνάει τη δημοσιευμένη {live}")
         else:
-            ok(f"έκδοση {m['version']} > δημοσιευμένη {live.group(1)}")
+            ok(f"έκδοση {m['version']} > δημοσιευμένη {live}")
     else:
         warn(f"δεν διάβασα τη δημοσιευμένη έκδοση — βεβαιώσου ότι το {m['version']} την ξεπερνάει")
 except Exception as e:
@@ -134,16 +138,29 @@ except Exception as e:
 # ── Πολιτική απορρήτου ──────────────────────────────────────────────
 if (PROJECT_DIR / "store/PRIVACY.html").exists(): ok("PRIVACY.html υπάρχει τοπικά")
 else: bad("λείπει το PRIVACY.html")
-# Δεν αρκεί το τοπικό αρχείο: η Google ζητάει URL που ανοίγει χωρίς login.
-# Το ελέγχουμε αντί να το υπενθυμίζουμε κάθε φορά.
-PRIVACY_URL = "https://georgasp.github.io/jobora/privacy.html"
-try:
-    import urllib.request
-    with urllib.request.urlopen(PRIVACY_URL, timeout=15) as r:
-        if r.status == 200: ok(f"η πολιτική είναι δημόσια: {PRIVACY_URL}")
-        else: warn(f"η πολιτική απάντησε {r.status} — {PRIVACY_URL}")
-except Exception as e:
-    warn(f"η πολιτική δεν ανοίγει δημόσια ({type(e).__name__}) — {PRIVACY_URL}")
+
+# ── Addresses the listing links to ──────────────────────────────────
+# The local file is not enough: the dashboard wants addresses that open without
+# a login, and will not publish while one of them fails. They are read from
+# LISTING.md, so the address checked here is the address pasted there.
+def check_listing_urls():
+    listed = listing.read_urls((PROJECT_DIR / "store/LISTING.md").read_text(encoding="utf-8"))
+    for label in listing.FIELDS:
+        url = listed.get(label)
+        if url is None:
+            bad(f"το LISTING.md δεν γράφει «{label}»")
+            continue
+        result = listing.check_url(url)
+        if result.state == listing.OK:
+            ok(f"{label}: ανοίγει το {url}")
+        elif result.state == listing.MOVED:
+            warn(f"{label}: το {url} οδηγεί αλλού — γράψε {result.detail}")
+        elif result.state == listing.BROKEN:
+            bad(f"{label}: το {url} δεν ανοίγει ({result.detail}) — το store δεν θα το δεχτεί")
+        else:
+            warn(f"{label}: δεν ελέγχθηκε το {url} ({result.detail})")
+
+check_listing_urls()
 
 # ── Locales ─────────────────────────────────────────────────────────
 locs = list((EXTENSION_DIR / "locales").glob("*.json"))
