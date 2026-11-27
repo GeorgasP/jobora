@@ -22,13 +22,23 @@ SENIOR_MARKERS = ("senior", "sr.", "lead", "principal", "staff", "head of",
 ENTRY_MARKERS = ("junior", "jr.", "entry", "graduate", "trainee", "intern",
                  "apprentice", "associate")
 
-LANGUAGE_SIGNALS = {
-    "el": ("greek", "ελλην", "greece", "athens", "hellenic"),
-    "es": ("spanish", "español", "espanol", "spain", "madrid", "barcelona"),
-    "de": ("german", "deutsch", "germany", "berlin", "munich"),
-    "fr": ("french", "français", "francais", "france", "paris"),
-    "it": ("italian", "italiano", "italy", "milan", "rome"),
-    "pt": ("portuguese", "português", "portugal", "lisbon"),
+# Words that say an ad asks for a language: the language's own names, never a
+# country or city (the location counts those already). "*" = any ending.
+LANGUAGE_WORDS = {
+    "el": ("greek", "hellenic", "ελληνικ*"),
+    "es": ("spanish", "español", "espanol", "castellano"),
+    "de": ("german", "deutsch", "deutschkenntnisse"),
+    "fr": ("french", "français", "francais", "francophone"),
+    "it": ("italian", "italiano"),
+    "pt": ("portuguese", "português", "portugues"),
+    "nl": ("dutch", "nederlands", "nederlandstalig*"),
+    "pl": ("polish", "polski", "polsku"),
+}
+# One whole-word pattern per language, so "deutsch" doesn't match "Deutschland".
+LANGUAGE_PATTERNS = {
+    language: re.compile(r"(?<!\w)(?:" + "|".join(
+        re.escape(word[:-1]) + r"\w*" if word.endswith("*") else re.escape(word) for word in words) + r")(?!\w)")
+    for language, words in LANGUAGE_WORDS.items()
 }
 
 
@@ -190,7 +200,10 @@ def score_job(job: dict, prefs: Preferences, home: str = "") -> tuple[int, dict]
         score += W_TITLE * 0.35
         reasons["title_match_in_description"] = desc_hits
     elif prefs.titles:
-        reasons["title_match"] = None      # χωρίς title hit ξεκινάς πολύ πίσω
+        # A job that matches none of the user's titles, in its title or its
+        # text, is not a match however many other points it collects:
+        # location, language, industry and freshness alone reach the minimum.
+        return 0, {"rejected": "none of your job titles"}
 
     # ─── Location ───────────────────────────────────────────────
     if geo_hits:
@@ -210,10 +223,9 @@ def score_job(job: dict, prefs: Preferences, home: str = "") -> tuple[int, dict]
     # ─── Γλώσσα ως πλεονέκτημα (π.χ. "Greek speaker required") ──
     lang_hits = []
     for lang in prefs.languages:
-        for marker in LANGUAGE_SIGNALS.get(lang, ()):
-            if marker in haystack:
-                lang_hits.append(lang)
-                break
+        pattern = LANGUAGE_PATTERNS.get(lang)
+        if pattern and pattern.search(haystack):
+            lang_hits.append(lang)
     if lang_hits:
         score += W_LANGUAGE
         reasons["language_signal"] = lang_hits

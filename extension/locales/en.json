@@ -155,6 +155,7 @@
   "reject.age": "the age limit",
   "reject.level": "your experience level",
   "reject.score": "the minimum score",
+  "reject.title": "your job titles",
   "toast.somethingWrong": "Something went wrong",
   "toast.preparing": "Preparing…",
   "popup.matchNow": "jobs match you right now",

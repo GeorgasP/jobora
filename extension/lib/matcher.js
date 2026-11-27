@@ -47,20 +47,32 @@ function jobLevel(title, description) {
   return "entry";
 }
 
-const LANGUAGE_SIGNALS = {
-  el: ["greek", "ελλην", "greece", "athens"],
-  es: ["spanish", "español", "espanol", "spain", "madrid", "barcelona"],
-  de: ["german", "deutsch", "germany", "berlin", "munich"],
-  fr: ["french", "français", "francais", "france", "paris"],
-  it: ["italian", "italiano", "italy", "milan", "rome"],
-  pt: ["portuguese", "português", "portugal", "brazil", "lisbon"],
-  nl: ["dutch", "nederlands", "netherlands", "amsterdam"],
-  pl: ["polish", "polska", "poland", "warsaw"],
-  ar: ["arabic", "العربية", "dubai", "riyadh"],
-  hi: ["hindi", "india", "bangalore", "mumbai"],
+// Words that say an ad asks for a language: the language's own names, never a
+// country or city. Those are the location's business: counting "Amsterdam" as
+// Dutch gave every job in the Netherlands the language points too, enough for
+// jobs unrelated to the user's titles to reach the minimum score.
+// A trailing "*" means any ending ("ελληνικ*": ελληνικά, ελληνικής).
+const LANGUAGE_WORDS = {
+  el: ["greek", "ελληνικ*"],
+  es: ["spanish", "español", "espanol", "castellano"],
+  de: ["german", "deutsch", "deutschkenntnisse"],
+  fr: ["french", "français", "francais", "francophone"],
+  it: ["italian", "italiano"],
+  pt: ["portuguese", "português", "portugues"],
+  nl: ["dutch", "nederlands", "nederlandstalig*"],
+  pl: ["polish", "polski", "polsku"],
+  ar: ["arabic", "العربية"],
+  hi: ["hindi"],
 };
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// One whole-word pattern per language, so "deutsch" doesn't match "Deutschland".
+const LANGUAGE_PATTERNS = Object.fromEntries(Object.entries(LANGUAGE_WORDS).map(([language, words]) => [
+  language,
+  new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.map((word) => (word.endsWith("*")
+    ? `${esc(word.slice(0, -1))}\\p{L}*` : esc(word))).join("|")})(?![\\p{L}\\p{N}])`, "u"),
+]));
 const phraseIn = (phrase, text) =>
   new RegExp(`(?<!\\w)${esc(phrase.toLowerCase())}(?!\\w)`).test(text);
 
@@ -253,6 +265,12 @@ export function scoreJob(jobItem, p) {
     (p.titleOccupations?.[wanted] || []).some((uri) => (jobItem.occupations || []).includes(uri));
   const titleHits = (p.titles || []).filter((t) => matchesTitle(t, title) || sharesOccupation(t));
   const descHits = (p.titles || []).filter((t) => !titleHits.includes(t) && matchesTitle(t, description));
+  // A job that matches none of the user's titles, in its title or its text, is
+  // not a match, however many other points it collects: location, language,
+  // industry and freshness alone add up to the default minimum score.
+  if ((p.titles || []).length && !titleHits.length && !descHits.length) {
+    return { score: 0, rejected: "none of your job titles", kind: "title", reasons };
+  }
   if (titleHits.length) {
     score += W.title;
     reasons.chips.push({ kind: "good", text: titleHits[0] });
@@ -280,7 +298,7 @@ export function scoreJob(jobItem, p) {
 
   const langHits = [];
   for (const lang of p.languages || []) {
-    if ((LANGUAGE_SIGNALS[lang] || []).some((m) => hay.includes(m))) langHits.push(lang);
+    if (LANGUAGE_PATTERNS[lang]?.test(hay)) langHits.push(lang);
   }
   if (langHits.length) {
     score += W.language;

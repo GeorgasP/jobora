@@ -77,3 +77,24 @@ test("blocking a country also blocks its cities", () => {
   assert.equal(outcome(job("New York, NY"), user), "blocked");
   assert.equal(outcome(job("Athens, Greece"), user), "match");
 });
+
+test("a job that matches none of the titles is not a match, whatever else it scores", () => {
+  // Apo's case: in the Netherlands, Dutch browser, tech industry, looking for a developer job.
+  const user = profile({ titles: ["Software Engineer"], locations: ["Netherlands"], languages: ["nl"], industries: ["tech"] });
+  const support = job("Amsterdam, Netherlands",
+    { title: "Dutch speaking Support Specialist", description: "Join our tech team. Fluent Dutch required." });
+  assert.equal(outcome(support, user), "title");
+  assert.equal(outcome(job("Amsterdam, Netherlands", { title: "Software Engineer" }), user), "match");
+  assert.equal(outcome(job("Amsterdam, Netherlands",
+    { title: "Backend Developer", description: "As a software engineer you will…" }), user), "match");
+});
+
+test("a language counts only when the ad names it, not where the job is", () => {
+  const speaks = (result) => result.reasons.chips.some((chip) => /speaker/.test(chip.text));
+  const dutch = profile({ locations: ["Netherlands"], languages: ["nl"] });
+  assert.equal(speaks(scoreJob(job("Amsterdam, Netherlands"), dutch)), false);
+  assert.equal(speaks(scoreJob(job("Amsterdam, Netherlands", { description: "Fluent Dutch required" }), dutch)), true);
+  const german = profile({ locations: ["Germany"], languages: ["de"] });
+  assert.equal(speaks(scoreJob(job("Berlin, Germany", { description: "Our office in Deutschland" }), german)), false);
+  assert.equal(speaks(scoreJob(job("Berlin, Germany", { description: "Fließend Deutsch" }), german)), true);
+});

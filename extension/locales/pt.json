@@ -155,6 +155,7 @@
   "reject.age": "pelo limite de antiguidade",
   "reject.level": "pelo teu nível de experiência",
   "reject.score": "pela pontuação mínima",
+  "reject.title": "pelos cargos que procuras",
   "toast.somethingWrong": "Algo correu mal",
   "toast.preparing": "A preparar…",
   "popup.matchNow": "vagas são para ti agora",
