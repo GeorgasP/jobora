@@ -12,6 +12,22 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
+### 2026-11-27 (night) · Claude (for Panos and Apo) · PDFs that read as empty
+
+- For Apo: your `ApoCVeng.pdf` gave 17 characters. Without the file I fixed
+  the four ways a real PDF loses its text in `extension/lib/cv.js`; once this
+  is on `main`, please try it again, and if it still fails, send Panos the PDF.
+  - One-byte font codes with a ToUnicode map (Word, Canva) were read as two
+    bytes each, so nearly every letter vanished.
+  - Text inside form XObjects (Canva, InDesign, "Save as PDF") was never read.
+  - `TextDecoder("latin1")` is Windows-1252: it turned bytes 0x80-0x9F into
+    "€", "’", which broke font codes in that range. PDFs are now read as bytes.
+  - Encrypted PDFs that open without a password, as CV builders make them,
+    are decrypted (new `extension/lib/pdfcrypt.js`: RC4, AES-128, AES-256);
+    ones that need a password give no text instead of junk.
+- Tests: `tests/cv-pdf.test.mjs`, with a PDF builder that encrypts with Node's
+  own crypto (`tests/helpers/pdf.mjs`); every case fails on the old reader.
+
 ### 2026-11-27 (evening) · Claude (for Panos and Apo) · Matching, autofill, cover letters
 
 - For Apo: all of this is on branch `search-fixes` (pull request #3), not on

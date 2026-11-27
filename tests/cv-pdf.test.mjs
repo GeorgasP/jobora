@@ -1,9 +1,11 @@
 // PDFs as CV builders and word processors write them. Each case is a way a
 // real CV came out (nearly) empty: the details must still be found.
 import assert from "node:assert/strict";
+import { createHash, randomBytes } from "node:crypto";
 import test from "node:test";
 import { guessFromCV, readCV } from "../extension/lib/cv.js";
-import { pdfFile, stream, toUnicode } from "./helpers/pdf.mjs";
+import { md5, rc4 as readerRc4 } from "../extension/lib/pdfcrypt.js";
+import { encryptedPdfFile, pdfFile, rc4, stream, toUnicode } from "./helpers/pdf.mjs";
 
 const LINES = ["Maria Papadopoulou", "maria@example.test", "+30 690 000 0000", "Athens, Greece"];
 const PAGE = "/Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]";
@@ -41,6 +43,32 @@ for (const shape of ["hex", "literal"]) {
   }
 }
 
+// A font numbers its glyphs 0x80 to 0x9F like any others. Read through a
+// Windows-1252 decoder, which TextDecoder("latin1") is, those bytes turn into
+// "€", "’" and the like, and the letters they stand for are lost.
+for (const bytes of [1, 2]) {
+  test(`font codes with bytes 0x80 to 0x9F, ${bytes} byte${bytes === 1 ? "" : "s"} each, in literal strings`, async () => {
+    const characters = [...new Set(LINES.join(""))];
+    const FIRST_CODE = 0x80;
+    const codes = new Map(characters.map((char, i) => [FIRST_CODE + i, char]));
+    const literalOf = (line) => `(${[...line].map((char) => {
+      const code = FIRST_CODE + characters.indexOf(char);
+      return bytes === 1 ? String.fromCharCode(code) : String.fromCharCode(code >> 8, code & 0xff);
+    }).join("")})`;
+    const font = bytes === 1
+      ? `<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Calibri /ToUnicode 6 0 R >>`
+      : `<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+Calibri /Encoding /Identity-H /ToUnicode 6 0 R >>`;
+    const cv = await readCV(pdfFile([
+      ...CATALOG,
+      `<< ${PAGE} /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>`,
+      stream(LINES.map((line, i) => `BT /F1 11 Tf 1 0 0 1 50 ${780 - 16 * i} Tm ${literalOf(line)} Tj ET`).join("\n")),
+      font,
+      stream(toUnicode(codes, bytes)),
+    ]));
+    assertFindsMaria(cv.text);
+  });
+}
+
 // Designed CVs (Canva, InDesign, a browser's "Save as PDF") draw the page
 // through form XObjects, sometimes nested, each with fonts of its own.
 for (const compressed of [false, true]) {
@@ -63,6 +91,44 @@ for (const compressed of [false, true]) {
       stream(toUnicode(new Map([[0x4d61, "X"]]), 2), { compressed }),
     ]));
     assertFindsMaria(cv.text);
+  });
+}
+
+/* ── Encrypted PDFs ──────────────────────────────────────── */
+
+/** Maria's CV with a one-byte font, its streams as { stream } for encryptedPdfFile. */
+function mariaObjects() {
+  const characters = [...new Set(LINES.join(""))];
+  const hexOf = (line) => [...line].map((char) => (characters.indexOf(char) + 1).toString(16).padStart(2, "0")).join("");
+  return [
+    ...CATALOG,
+    `<< ${PAGE} /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>`,
+    { stream: LINES.map((line, i) => `BT /F1 11 Tf 1 0 0 1 50 ${780 - 16 * i} Tm <${hexOf(line)}> Tj ET`).join("\n") },
+    `<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Calibri /FirstChar 1 /LastChar ${characters.length} /ToUnicode 6 0 R >>`,
+    { stream: toUnicode(new Map(characters.map((char, i) => [i + 1, char])), 1) },
+  ];
+}
+
+test("the reader's MD5 and RC4 agree with Node's and with RC4's published vector", () => {
+  for (const length of [0, 1, 55, 56, 63, 64, 65, 1000]) {
+    const data = randomBytes(length);
+    assert.equal(Buffer.from(md5(data)).toString("hex"), createHash("md5").update(data).digest("hex"), `${length} bytes`);
+  }
+  for (const cipher of [readerRc4, rc4]) {
+    assert.equal(Buffer.from(cipher(Buffer.from("Key"), Buffer.from("Plaintext"))).toString("hex"), "bbf316e8d940af0ad3");
+  }
+});
+
+// CV builders protect their PDFs against editing: encrypted, with an empty
+// password to open them.
+for (const method of ["RC4", "AESV2", "AESV3"]) {
+  test(`an encrypted PDF that opens without a password (${method})`, async () => {
+    assertFindsMaria((await readCV(encryptedPdfFile(mariaObjects(), method))).text);
+  });
+
+  test(`a PDF that needs a password to open gives no text, not junk (${method})`, async () => {
+    const cv = await readCV(encryptedPdfFile(mariaObjects(), method, { userPassword: "secret" }));
+    assert.equal(cv.text, "");
   });
 }
 

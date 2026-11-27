@@ -1,6 +1,7 @@
 import { ALL_PROFESSIONS } from "./professions.js";
 import { countryLabel, placesIn } from "./places.js";
 import { detectFormat, docText, rtfText, zipDocumentText } from "./documents.js";
+import { pdfDecryption } from "./pdfcrypt.js";
 
 /*
  * Reading the CV the user uploads, with no outside library, and guessing what
@@ -17,7 +18,24 @@ import { detectFormat, docText, rtfText, zipDocumentText } from "./documents.js"
 
 export const MAX_CV_BYTES = 8 * 1024 * 1024;
 
-const latin = new TextDecoder("latin1");
+// TextDecoder("latin1") is Windows-1252 (the web's label for it), which turns
+// bytes 0x80-0x9F into "€", "’" and the like. That is right for the text of a
+// font without a map, which PDFs encode that way (WinAnsiEncoding), and wrong
+// for everything else in a PDF: font codes, binary strings, structure.
+const windows1252 = new TextDecoder("windows-1252");
+const BYTE_STRING_CHUNK = 0x8000;                 // String.fromCharCode's arguments, at most
+
+/** The bytes as a string of the same char codes, 0 to 255. */
+function byteString(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += BYTE_STRING_CHUNK) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + BYTE_STRING_CHUNK));
+  }
+  return out;
+}
+
+/** Text in a font without a ToUnicode map: the bytes as Windows-1252, PDF's WinAnsiEncoding. */
+const winAnsi = (byteText) => windows1252.decode(Uint8Array.from(byteText, (char) => char.charCodeAt(0)));
 
 async function inflate(bytes, format) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
@@ -80,28 +98,42 @@ function parseCMap(text) {
   return { map, codeBytes };
 }
 
-/** An object's stream, decompressed when it is compressed; null when it has none. */
-async function objectStream(bytes, raw, from, to) {
+/**
+ * An object's stream: decrypted when the file is encrypted, decompressed when
+ * it is compressed; null when it has none. lengthOf(n) resolves an indirect
+ * /Length.
+ */
+async function objectStream(bytes, raw, from, to, { decrypt = null, lengthOf = () => NaN } = {}) {
   const head = raw.indexOf("stream", from);
   if (head < 0 || head > to) return null;
   let start = head + 6;
-  while (bytes[start] === 13 || bytes[start] === 10) start++;
+  if (bytes[start] === 13) start++;                // "stream" ends with CRLF or LF; the data
+  if (bytes[start] === 10) start++;                // itself may begin with either byte
   const end = raw.indexOf("endstream", start);
   if (end < 0 || end > to + 64) return null;
 
   let stop = end;
   while (stop > start && (bytes[stop - 1] === 10 || bytes[stop - 1] === 13)) stop--;
-  const slice = bytes.subarray(start, stop);
-  if (!slice.length) return null;
+  // The declared length is exact, and encrypted or compressed data can end in
+  // a byte that looks like a line break; trimming at "endstream" would cut it.
+  const dictionary = raw.slice(from, head);
+  const indirect = /\/Length\s+(\d+)\s+0\s+R/.exec(dictionary);
+  const length = indirect ? lengthOf(Number(indirect[1])) : Number(/\/Length\s+(\d+)/.exec(dictionary)?.[1]);
+  if (Number.isFinite(length) && length > 0 && start + length <= end && end - (start + length) <= 2) stop = start + length;
+  let data = bytes.subarray(start, stop);
+  if (!data.length) return null;
+  if (decrypt) {
+    try { data = await decrypt(data); } catch { return null; }
+  }
 
   for (const fmt of ["deflate", "deflate-raw"]) {
-    try { return await inflate(slice, fmt); } catch { /* another filter */ }
+    try { return await inflate(data, fmt); } catch { /* another filter */ }
   }
-  return slice;                                   // not compressed
+  return data;                                     // not compressed
 }
 
 async function pdfText(bytes) {
-  const raw = latin.decode(bytes);
+  const raw = byteString(bytes);
 
   // 1. Every object: those written plainly in the file, and those packed into
   //    compressed object streams (PDF 1.5+), where Word and others keep fonts.
@@ -111,7 +143,7 @@ async function pdfText(bytes) {
     const end = raw.indexOf("endobj", start);
     if (end > 0) objects.set(Number(m[1]), { start, end });
   }
-  const packed = await objectsInObjectStreams(bytes, raw, objects);
+  let packed = new Map();
   /** An object's dictionary text, wherever the object is stored. */
   const declaration = (num) => {
     if (packed.has(num)) return packed.get(num);
@@ -120,6 +152,22 @@ async function pdfText(bytes) {
     const streamAt = raw.indexOf("stream", span.start);
     return raw.slice(span.start, streamAt > 0 && streamAt < span.end ? streamAt : span.end);
   };
+
+  // An encrypted PDF that opens without a password, as CV builders protect
+  // them against editing, is decrypted; one that needs a password gives no
+  // text rather than junk.
+  const crypt = await pdfDecryption(raw, declaration);
+  if (crypt?.locked) return "";
+  /** Object num's stream data, decrypted and decompressed. */
+  const streamOf = (num) => {
+    const span = objects.get(num);
+    if (!span) return null;
+    return objectStream(bytes, raw, span.start, span.end, {
+      decrypt: crypt ? (data) => crypt.decrypt(data, num) : null,
+      lengthOf: (ref) => Number(declaration(ref).trim()),
+    });
+  };
+  packed = await objectsInObjectStreams(raw, objects, streamOf);
   const allNumbers = [...new Set([...objects.keys(), ...packed.keys()])];
 
   // 2. The ToUnicode CMap of each font object
@@ -128,11 +176,8 @@ async function pdfText(bytes) {
     if (cmapCache.has(fontObjNum)) return cmapCache.get(fontObjNum);
     let map = null;
     const ref = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(declaration(fontObjNum));
-    const target = ref && objects.get(Number(ref[1]));
-    if (target) {
-      const data = await objectStream(bytes, raw, target.start, target.end);
-      if (data) map = parseCMap(latin.decode(data));
-    }
+    const data = ref && await streamOf(Number(ref[1]));
+    if (data) map = parseCMap(byteString(data));
     cmapCache.set(fontObjNum, map);
     return map;
   };
@@ -185,7 +230,7 @@ async function pdfText(bytes) {
 
   const decodeText = (token, cmap) => {
     const bytes = token[0] === "(" ? unescapeLiteral(token.slice(1, -1)) : hexBytes(token.slice(1, -1));
-    return cmap ? decodeWithMap(bytes, cmap) : bytes;
+    return cmap ? decodeWithMap(bytes, cmap) : winAnsi(bytes);
   };
 
   const decodeArray = (array, map) => {
@@ -235,8 +280,7 @@ async function pdfText(bytes) {
     if (num === undefined || drawing.has(num) || drawing.size >= MAX_FORM_DEPTH) return;
     const dictionary = declaration(num);
     if (!/\/Subtype\s*\/Form\b/.test(dictionary)) return;      // images hold no text
-    const span = objects.get(num);
-    const data = span && await objectStream(bytes, raw, span.start, span.end);
+    const data = await streamOf(num);
     if (!data) return;
     const own = resourcesOf(dictionary);
     chunks.push("\n");                                          // a form is a block of its own
@@ -251,7 +295,7 @@ async function pdfText(bytes) {
   // Td/Tm do not always start a new line: Chrome also uses them to move within
   // a line. A new line is when the baseline (Y) changes.
   const readContent = async (data, resources, drawing = new Set()) => {
-    const text = latin.decode(data);
+    const text = byteString(data);
     if (!/\bTj\b|\bTJ\b|\bTf\b|\bDo\b/.test(text)) return;
     let map = null;
     let lastY = null, lastX = null;
@@ -305,20 +349,19 @@ async function pdfText(bytes) {
   for (const page of pages) {
     const resources = resourcesOf(page.text);
     for (const ref of contentRefs(page.text, declaration)) {
-      const span = objects.get(ref);
-      const data = span && await objectStream(bytes, raw, span.start, span.end);
+      const data = await streamOf(ref);
       if (data) await readContent(data, resources);
       if (chunks.length > 60000) break;
     }
   }
   // A file without a readable page tree: fall back to every stream that draws text.
   if (!pages.length) {
-    for (const [, span] of objects) {
+    for (const [num, span] of objects) {
       const decl = raw.slice(span.start, Math.min(span.end, span.start + 400));
       if (/\/(Image|Font|FontFile|ToUnicode|XObject\s*<<)/.test(decl) && !/\/Contents/.test(decl)) {
         if (!/\/Length/.test(decl) || /\/Subtype\s*\/Image/.test(decl)) continue;
       }
-      const data = await objectStream(bytes, raw, span.start, span.end);
+      const data = await streamOf(num);
       if (data) await readContent(data, { fonts: new Map(), xobjects: new Map() });
       if (chunks.length > 60000) break;
     }
@@ -336,17 +379,18 @@ async function pdfText(bytes) {
 /**
  * Objects packed into compressed object streams (/Type /ObjStm, PDF 1.5+),
  * as number → dictionary text. The stream starts with "number offset" pairs.
+ * streamOf(n) reads object n's stream.
  */
-async function objectsInObjectStreams(bytes, raw, objects) {
+async function objectsInObjectStreams(raw, objects, streamOf) {
   const found = new Map();
-  for (const [, span] of objects) {
+  for (const [num, span] of objects) {
     const head = raw.slice(span.start, Math.min(span.end, span.start + 300));
     if (!/\/Type\s*\/ObjStm/.test(head)) continue;
     const count = Number(/\/N\s+(\d+)/.exec(head)?.[1]);
     const first = Number(/\/First\s+(\d+)/.exec(head)?.[1]);
-    const data = count && first && await objectStream(bytes, raw, span.start, span.end);
+    const data = count && first && await streamOf(num);
     if (!data) continue;
-    const text = latin.decode(data);
+    const text = byteString(data);
     const index = text.slice(0, first).trim().split(/\s+/).map(Number);
     for (let i = 0; i < count; i++) {
       const offset = index[2 * i + 1];
@@ -438,7 +482,7 @@ async function cvText(bytes, ext) {
   switch (detectFormat(bytes)) {
     case "pdf": return pdfText(bytes);
     case "zip": return zipDocumentText(bytes);
-    case "rtf": return rtfText(latin.decode(bytes));
+    case "rtf": return rtfText(windows1252.decode(bytes));
     case "ole": return docText(bytes);
     default: return DOCUMENT_EXTENSIONS.has(ext) ? "" : plainText(bytes);
   }
