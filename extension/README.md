@@ -141,6 +141,8 @@ For the checks that need a real browser, serve the repository locally with
   scan states in every language.
 - `http://127.0.0.1:8765/tests/autofill.browser.html`: "Fill with Jobora" on
   sample Greenhouse, Lever and Workable forms.
+- `http://127.0.0.1:8765/tests/save.browser.html`: "Save to Jobora" on a job
+  post, as on a social site.
 
 Each page reports PASS or FAIL and uses synthetic CVs and simulated extension
 storage.

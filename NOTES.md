@@ -37,7 +37,18 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 - Letters without a key: a template in every language Settings offers (Dutch
   and Polish added); others came out in English. The Python template no
   longer claims "customer-facing experience" for everyone.
-- Tests: 102 Node, 14 Python, 4 browser pages (see `extension/README.md`),
+- "Save to Jobora" on social sites speaks the user's language (it was Greek
+  only) and finds job posts in nine languages (English and Greek only).
+- For Apo: `python -m jobora serve` used to copy an old form filler
+  (`jobora/static/prefill.js`, now deleted) over `extension/content/prefill.js`
+  on every start, undoing later fixes. If you ran it, check `git status` for
+  that file. The dashboard now serves the extension's script itself.
+- Python engine: `status`, `matches` and `history` crashed on a new machine
+  (no tables); the history in `data/jobhunter.db`, left behind by the rename
+  in September, is taken over as `data/jobora.db`. Forms filled from the
+  dashboard are matched to applications like the extension does, both checked
+  against `tests/fixtures/application-matching.json`.
+- Tests: 108 Node, 22 Python, 5 browser pages (see `extension/README.md`),
   one of them a whole scan through the service worker.
 - Still to do: the 1.2.0 store package.
 
