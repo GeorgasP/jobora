@@ -12,6 +12,35 @@ person. Keep it to a few lines: the commits and pull requests hold the details.
 
 ---
 
+### 2026-11-27 (evening) · Claude (for Panos and Apo) · Matching, autofill, cover letters
+
+- For Apo: all of this is on branch `search-fixes` (pull request #3), not on
+  `main` until #3 is merged. The Netherlands case (other countries, thousands
+  of unrelated matches) is fixed there, not on `main`.
+- A match needs one of the user's job titles, in the job's title or text
+  (`matcher.js`, `jobora/matcher.py`): location, language, industry and
+  freshness alone reached the minimum score. Netherlands, developer: 110 of
+  141 matches were unrelated, now 0 of 9. A language counts only when the ad
+  names it ("Dutch", "Nederlands"), not because the job is in the Netherlands.
+- The Python engine matches locations like the extension (`jobora/places.py`,
+  generated from `places.js`; `tests/test_places.py` fails if they drift).
+- Autofill (`content/prefill.js`, `content/button.js`, new
+  `lib/applications.js`): the form gets its own application (Lever "/apply",
+  Greenhouse on another host, the company's own site), and no cover letter
+  when it cannot tell; it used to take the latest, another company's letter.
+  Submit marks the application sent even after clicking fields first. Job
+  text in the report box is text, not HTML. The CV never goes into a cover
+  letter upload; "Company name", "Ethnicity", "Open source…" stay empty. The
+  button and report box speak the user's language.
+- The worker loads the user's language before every message (a fresh worker
+  answered with keys like "fill.nothingPrepared").
+- Letters without a key: a template in every language Settings offers (Dutch
+  and Polish added); others came out in English. The Python template no
+  longer claims "customer-facing experience" for everyone.
+- Tests: 102 Node, 14 Python, 4 browser pages (see `extension/README.md`),
+  one of them a whole scan through the service worker.
+- Still to do: the 1.2.0 store package.
+
 ### 2026-11-27 (later) · Claude (for Panos) · Portal permissions and CV formats
 
 - EURES/ESCO, jobfind.gr and xe.gr are now optional permissions

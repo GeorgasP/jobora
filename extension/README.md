@@ -93,19 +93,31 @@ server and no account.
 ## Layout
 
 ```
-manifest.json        permissions and content-script targets
-background.js        the engine: scheduled scans, badge, notifications, messages
-lib/sources.js       6 ATS providers + 6 job boards
-lib/matcher.js       0-100 scoring and the geography rules
-lib/cv.js            PDF / DOCX / TXT parsing, pulls your details out of the CV
-lib/letters.js       cover letters — template or Claude
-lib/companies.js     company library by industry
-lib/store.js         storage layer
-app.html/js/css      dashboard: matches, pipeline, settings
-onboarding.html/js   first-run setup
-popup.html/js        toolbar popup
-content/prefill.js   the form filler
-content/button.js    the “Fill with Jobora” button on application pages
+manifest.json          permissions and content-script targets
+background.js          the engine: scheduled scans, badge, notifications, messages
+lib/sources.js         9 company-board providers (ATS) + 17 job boards
+lib/portals.js         the job portals that need the user's permission first
+lib/esco.js            ESCO occupations, so EURES finds every industry in any language
+lib/scanplan.js        what a scan asks EURES: which occupations, which countries
+lib/matcher.js         0-100 scoring: titles, location, language, salary, freshness
+lib/places.js          countries, cities and regions, as whole words
+lib/cv.js              reads a CV and pulls out name, contact details, home and titles
+lib/documents.js       text out of DOCX, ODT, RTF and old .doc files
+lib/letters.js         cover letters: a template in nine languages, or Claude
+lib/applications.js    which prepared application an application form belongs to
+lib/companies.js       company library by industry
+lib/professions.js     job titles by industry
+lib/suggest.js         vocabulary for the job title and location fields
+lib/tagfield.js        the tag fields with suggestions
+lib/fx.js              currency conversion, for comparing salaries
+lib/i18n.js            the eight interface languages
+lib/store.js           storage layer
+app.html/js/css        dashboard: matches, pipeline, settings
+onboarding.html/js     first-run setup
+popup.html/js          toolbar popup
+content/prefill.js     the form filler
+content/button.js      the “Fill with Jobora” button on application pages
+content/save.js        "Save to Jobora" for ads on social sites, when switched on
 ```
 
 Regression tests for CV reading and job matching (Node.js 22 or newer, from
@@ -125,9 +137,15 @@ For the checks that need a real browser, serve the repository locally with
   editing, styling, and the address and country read from the CV.
 - `http://127.0.0.1:8765/tests/settings.browser.html`: what a new CV does in
   Settings (fills an empty location, offers its job titles).
+- `http://127.0.0.1:8765/tests/dashboard.browser.html`: the dashboard and its
+  scan states in every language.
+- `http://127.0.0.1:8765/tests/autofill.browser.html`: "Fill with Jobora" on
+  sample Greenhouse, Lever and Workable forms.
 
 Each page reports PASS or FAIL and uses synthetic CVs and simulated extension
 storage.
+
+The Python engine's tests: `python -m unittest discover -s tests`.
 
 There is also a Python version in `../jobora/` for power users: same engine,
 plus SMTP email applications and IMAP tracking of company replies — things a
