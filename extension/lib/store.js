@@ -38,10 +38,14 @@ export const DEFAULT_PROFILE = {
   minScore: 55,
   boards: ["remotive", "arbeitnow", "remoteok", "jobicy", "himalayas", "workingnomads",
            "weworkremotely", "landingjobs", "cryptojobs", "devitjobs", "adzuna", "eures",
-           "psf", "skywalker", "jobfind", "xe", "ordino"],
+           "psf", "skywalker", "jobfind", "xe", "ordino", "jobtech", "nav"],
   // The ESCO occupations of each job title, looked up once per title by the
   // scan (see esco.js): { "Waiter": ["http://data.europa.eu/esco/occupation/…"] }.
   titleOccupations: {},
+  // Each of those occupations' names in ESCO's 28 languages, looked up once,
+  // for searching national job portals in their own language:
+  // { "http://data.europa.eu/esco/occupation/…": { sv: "servitör", no: "servitør", … } }.
+  occupationNames: {},
   targets: [],
   autoScan: true,
   notify: true,

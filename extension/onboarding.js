@@ -4,7 +4,8 @@ import { ALL_INDUSTRIES, pickCompanies } from "./lib/companies.js";
 import { buildVocabulary } from "./lib/suggest.js";
 import { createTagField } from "./lib/tagfield.js";
 import { initI18n, loadLanguage, applyTranslations, t, LANGUAGES } from "./lib/i18n.js";
-import { PORTAL_ORIGINS } from "./lib/portals.js";
+import { portalOriginsFor } from "./lib/portals.js";
+import { countriesOf } from "./lib/scanplan.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -211,11 +212,15 @@ $("#back3").onclick = () => step(2);
 $("#finish").onclick = async () => {
   // First, while the click still counts as the user's: Chrome only shows its
   // permission question during one. Saying no just leaves the portals out.
-  await chrome.permissions.request({ origins: PORTAL_ORIGINS }).catch(() => false);
+  // The question names the shared portals and the national employment
+  // services of the countries chosen, never every country's.
+  const locations = tagValues("locations").length ? tagValues("locations") : ["Remote"];
+  const origins = portalOriginsFor(countriesOf({ locations, location: guess.location || "" }));
+  await chrome.permissions.request({ origins }).catch(() => false);
   const industries = $$("#industries .pick.on").map((p) => p.dataset.i);
   await store.saveProfile({
     titles: tagValues("titles"),
-    locations: tagValues("locations").length ? tagValues("locations") : ["Remote"],
+    locations,
     industries,
     targets: pickCompanies(industries),
     remoteOnly: $('[data-tog="remoteOnly"]').classList.contains("on"),

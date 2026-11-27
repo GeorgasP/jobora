@@ -276,13 +276,13 @@
   "settings.portals.title": "Offerte in ogni settore",
   "settings.portals.hint": "consigliato",
   "settings.portals": "Portali pubblici del lavoro",
-  "settings.portals.help": "EURES, il portale del lavoro dell'UE, e i siti greci jobfind.gr e xe.gr: infermieri, camerieri, autisti, non solo software. Chrome ti chiederà di consentire questi siti.",
+  "settings.portals.help": "EURES, il portale del lavoro dell'UE, i servizi pubblici per l'impiego dei paesi che scegli e i siti greci jobfind.gr e xe.gr: infermieri, camerieri, autisti, non solo software. Chrome ti chiederà di consentire questi siti.",
   "settings.portals.on": "Portali del lavoro attivati. Sono inclusi dalla prossima ricerca.",
   "settings.portals.off": "Portali del lavoro disattivati.",
   "settings.portals.denied": "Chrome non ha consentito i siti, quindi i portali del lavoro restano disattivati.",
   "offer.portals": "Trova offerte in ogni settore",
-  "offer.portals.help": "Attiva EURES e i siti di lavoro greci: infermieri, camerieri, autisti, non solo software.",
+  "offer.portals.help": "Attiva EURES, i servizi per l'impiego dei tuoi paesi e i siti di lavoro greci: infermieri, camerieri, autisti, non solo software.",
   "offer.portals.on": "Attiva",
   "offer.portals.later": "Non ora",
-  "onboarding.portals.note": "Chrome ti chiederà di permettere a Jobora di leggere EURES e due siti di lavoro greci. Consentilo per trovare offerte in ogni settore."
+  "onboarding.portals.note": "Chrome ti chiederà di permettere a Jobora di leggere EURES, i servizi per l'impiego dei paesi scelti e due siti di lavoro greci. Consentilo per trovare offerte in ogni settore."
 }

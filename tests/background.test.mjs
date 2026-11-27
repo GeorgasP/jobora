@@ -67,6 +67,16 @@ globalThis.fetch = async (input, options = {}) => {
       remotiveJob(3, "Software Engineer", "Worldwide"),  // none of the user's titles
     ] });
   }
+  if (url.hostname === "ec.europa.eu" && url.pathname.endsWith("/resource/occupation")) {
+    return json({ preferredLabel: { en: "nurse responsible for general care", sv: "sjuksköterska, grundutbildad" } });
+  }
+  if (url.hostname === "jobsearch.api.jobtechdev.se") {
+    return json({ hits: [{
+      id: "31777351", headline: "Sjuksköterska", occupation: { label: "Sjuksköterska, grundutbildad" },
+      employer: { name: "Västra Götalandsregionen" }, workplace_address: { municipality: "Mölndal" },
+      publication_date: now, webpage_url: "https://arbetsformedlingen.se/platsbanken/annonser/31777351",
+    }] });
+  }
   if (url.hostname === "ec.europa.eu") {
     return json({ _embedded: { results: [{ title: "waiter/waitress", uri: WAITER }, { title: "sommelier", uri: "esco:x" }] } });
   }
@@ -88,8 +98,8 @@ const hits = (hostname) => requests.filter((r) => r.url.hostname === hostname);
 
 test("an older profile gets the sources added since, once", async () => {
   await send({ type: "refreshBadge" });   // waits for the migration like every handler
-  for (const board of ["eures", "jobfind", "xe"]) assert.ok(storage.profile.boards.includes(board), board);
-  assert.equal(storage.state.schemaVersion, 8);
+  for (const board of ["eures", "jobfind", "xe", "jobtech", "nav"]) assert.ok(storage.profile.boards.includes(board), board);
+  assert.equal(storage.state.schemaVersion, 9);
 });
 
 test("without the portals' permission, a scan leaves them and ESCO out", async () => {
@@ -119,6 +129,30 @@ test("with permission, a scan asks ESCO once per title and EURES for the user's 
 
   await send({ type: "scan" });   // the occupation is remembered, not looked up again
   assert.equal(hits("ec.europa.eu").length, 1);
+});
+
+test("a user in Sweden gets Platsbanken's jobs, searched in Swedish through ESCO", async () => {
+  const NURSE = "http://data.europa.eu/esco/occupation/nurse";
+  const saved = structuredClone(storage.profile);
+  Object.assign(storage.profile, { titles: ["Nurse"], locations: ["Sweden"], titleOccupations: { Nurse: [NURSE] } });
+  try {
+    // Without Sweden's site allowed, Platsbanken is left out.
+    await send({ type: "scan" });
+    assert.equal(hits("jobsearch.api.jobtechdev.se").length, 0);
+
+    granted.add("https://jobsearch.api.jobtechdev.se/*");
+    const result = await send({ type: "scan" });
+    assert.equal(result.ok, true);
+    const [search] = hits("jobsearch.api.jobtechdev.se");
+    assert.equal(search.url.searchParams.get("q"), "sjuksköterska");
+    assert.equal(storage.profile.occupationNames[NURSE].sv, "sjuksköterska", "the names are kept for the next scan");
+    const { matches } = await send({ type: "matches" });
+    assert.ok(matches.some((m) => m.title === "Sjuksköterska" && m.location === "Mölndal, Sweden"),
+      JSON.stringify(matches.map((m) => `${m.title} | ${m.location}`)));
+  } finally {
+    granted.delete("https://jobsearch.api.jobtechdev.se/*");
+    storage.profile = saved;
+  }
 });
 
 test("the dashboard gets the best matches, and counts of all of them", async () => {

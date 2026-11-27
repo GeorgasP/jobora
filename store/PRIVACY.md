@@ -68,6 +68,15 @@ standard occupation code, and then asks EURES (`europa.eu`) for vacancies with
 those occupation codes in the European countries where you want to work. Your
 CV, name and contact details are never sent.
 
+Also after you allow it in the app, and only for the countries where you want
+to work: **national public employment services**. For Sweden that is
+Arbetsförmedlingen's job search (`jobsearch.api.jobtechdev.se`), which receives
+the name of each occupation you look for, in Swedish, as ESCO gives it. For
+Norway it is NAV's job vacancy feed (`pam-stilling-feed.nav.no`), which is read
+with the public access token NAV publishes and receives nothing about your
+search; the ads are filtered on your computer. Your CV, name and contact
+details are never sent to either.
+
 **2. Currency exchange rates.** Once a day the extension requests published
 exchange rates from `open.er-api.com`, so that a minimum salary you set in one
 currency can be compared against a job advertised in another. The request has

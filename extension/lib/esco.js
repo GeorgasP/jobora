@@ -10,6 +10,7 @@
 import { fold } from "./places.js";
 
 const ESCO_SEARCH = "https://ec.europa.eu/esco/api/search";
+const ESCO_OCCUPATION = "https://ec.europa.eu/esco/api/resource/occupation";
 const RESULTS_TO_CONSIDER = 8;
 const OCCUPATIONS_PER_TITLE = 3;
 
@@ -52,4 +53,21 @@ export async function lookUpOccupations(title, getJSON) {
   });
   const found = await getJSON(`${ESCO_SEARCH}?${params}`);
   return pickOccupations(title, found?._embedded?.results || []);
+}
+
+/**
+ * An occupation's name in every language ESCO has (28), as
+ * { sv: "sjuksköterska", no: "sykepleier", … }: national job portals are
+ * searched in their own language. One answer holds all the languages. A
+ * qualifier after a comma or in brackets is dropped, since ads say
+ * "sjuksköterska", not "sjuksköterska, grundutbildad".
+ */
+export async function occupationNames(uri, getJSON) {
+  const found = await getJSON(`${ESCO_OCCUPATION}?${new URLSearchParams({ uri, language: "en" })}`);
+  const names = {};
+  for (const [language, label] of Object.entries(found?.preferredLabel || {})) {
+    const name = String(label).split(/[,(]/)[0].trim();
+    if (name) names[language] = name;
+  }
+  return names;
 }
