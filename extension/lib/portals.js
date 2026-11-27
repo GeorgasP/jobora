@@ -16,7 +16,9 @@ export const PORTAL_ORIGINS_BY_BOARD = {
 export const PORTAL_ORIGINS = [...new Set(Object.values(PORTAL_ORIGINS_BY_BOARD).flat())];
 
 /** Whether the user has allowed every portal's sites. */
-export const portalsAllowed = () => chrome.permissions.contains({ origins: PORTAL_ORIGINS });
+// Async so that any failure (no permissions API, as in a test page) arrives as a
+// rejected promise the caller can catch, never as an exception thrown on the spot.
+export const portalsAllowed = async () => chrome.permissions.contains({ origins: PORTAL_ORIGINS });
 
 /** The boards a scan may use: every board, minus the portals whose sites aren't allowed. */
 export async function boardsWithPermission(boards = []) {
